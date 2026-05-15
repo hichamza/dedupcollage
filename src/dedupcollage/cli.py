@@ -22,7 +22,8 @@ from pathlib import Path
 import click
 from tqdm import tqdm
 
-from dedupcollage import __version__, analyze as analyze_mod
+from dedupcollage import __version__
+from dedupcollage import analyze as analyze_mod
 from dedupcollage import cluster as cluster_mod
 from dedupcollage import fingerprint as fp
 from dedupcollage import organize as org_mod

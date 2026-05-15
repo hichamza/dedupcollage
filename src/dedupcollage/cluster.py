@@ -29,7 +29,7 @@ class _DSU:
     parent: dict[int, int]
 
     @classmethod
-    def empty(cls) -> "_DSU":
+    def empty(cls) -> _DSU:
         return cls(parent={})
 
     def find(self, x: int) -> int:

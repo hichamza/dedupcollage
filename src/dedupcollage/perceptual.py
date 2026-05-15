@@ -96,4 +96,4 @@ def hash_video(path: Path) -> tuple[bytes, bytes] | None:
 
 def hamming_distance(a: bytes, b: bytes) -> int:
     """Bit-level Hamming distance between two equal-length byte sequences."""
-    return sum(bin(x ^ y).count("1") for x, y in zip(a, b))
+    return sum(bin(x ^ y).count("1") for x, y in zip(a, b, strict=True))

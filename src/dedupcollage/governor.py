@@ -33,19 +33,19 @@ class ThrottleConfig:
     process_priority: str   # 'idle' | 'below_normal' | 'normal'
 
     @classmethod
-    def background(cls) -> "ThrottleConfig":
+    def background(cls) -> ThrottleConfig:
         return cls("background", cpu_cap=50.0, ram_cap=80.0, io_cap_mbps=None, process_priority="idle")
 
     @classmethod
-    def balanced(cls) -> "ThrottleConfig":
+    def balanced(cls) -> ThrottleConfig:
         return cls("balanced", cpu_cap=90.0, ram_cap=85.0, io_cap_mbps=None, process_priority="below_normal")
 
     @classmethod
-    def fullspeed(cls) -> "ThrottleConfig":
+    def fullspeed(cls) -> ThrottleConfig:
         return cls("fullspeed", cpu_cap=100.0, ram_cap=95.0, io_cap_mbps=None, process_priority="normal")
 
     @classmethod
-    def custom(cls, cpu_cap: float, ram_cap: float, io_cap_mbps: float | None) -> "ThrottleConfig":
+    def custom(cls, cpu_cap: float, ram_cap: float, io_cap_mbps: float | None) -> ThrottleConfig:
         return cls("custom", cpu_cap=cpu_cap, ram_cap=ram_cap, io_cap_mbps=io_cap_mbps, process_priority="below_normal")
 
 
@@ -132,13 +132,11 @@ class Governor:
 
     def _has_capacity(self) -> bool:
         cfg = self._cfg
-        if self._cpu_pct > cfg.cpu_cap:
-            return False
-        if self._ram_pct > cfg.ram_cap:
-            return False
-        if cfg.io_cap_mbps is not None and self._io_mbps > cfg.io_cap_mbps:
-            return False
-        return True
+        return not (
+            self._cpu_pct > cfg.cpu_cap
+            or self._ram_pct > cfg.ram_cap
+            or (cfg.io_cap_mbps is not None and self._io_mbps > cfg.io_cap_mbps)
+        )
 
     def _run(self) -> None:
         # Prime psutil.cpu_percent so the first reading isn't 0.0

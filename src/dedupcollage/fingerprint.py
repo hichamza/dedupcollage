@@ -69,7 +69,7 @@ def run_quickhash_stage(conn, *, governor=None, on_progress=None) -> dict[str, i
     done = 0
     errors = 0
     pending_updates: list[tuple[str, int, int]] = []
-    BATCH = 200
+    batch_size = 200
     for row in todo:
         if governor:
             governor.acquire()
@@ -84,7 +84,7 @@ def run_quickhash_stage(conn, *, governor=None, on_progress=None) -> dict[str, i
             )
             errors += 1
         done += 1
-        if len(pending_updates) >= BATCH:
+        if len(pending_updates) >= batch_size:
             _flush_quick(conn, pending_updates)
             if on_progress:
                 on_progress(done, len(todo))
@@ -140,7 +140,7 @@ def run_fullhash_stage(conn, *, governor=None, on_progress=None) -> dict[str, in
     done = 0
     errors = 0
     pending: list[tuple[str, int, int]] = []
-    BATCH = 50
+    batch_size = 50
     for file_id in ids:
         row = conn.execute("SELECT path FROM files WHERE id = ?", (file_id,)).fetchone()
         if row is None:
@@ -158,7 +158,7 @@ def run_fullhash_stage(conn, *, governor=None, on_progress=None) -> dict[str, in
             )
             errors += 1
         done += 1
-        if len(pending) >= BATCH:
+        if len(pending) >= batch_size:
             _flush_full(conn, pending)
             if on_progress:
                 on_progress(done, len(ids))

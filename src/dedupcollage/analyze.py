@@ -122,7 +122,7 @@ def run_analyze_stage(conn, *, governor=None, on_progress=None, limit: int | Non
 
     done = 0
     errors = 0
-    BATCH = 50
+    batch_size = 50
     pending: list[tuple[dict, int]] = []
 
     def _flush() -> None:
@@ -150,7 +150,7 @@ def run_analyze_stage(conn, *, governor=None, on_progress=None, limit: int | Non
             errors += 1
         pending.append((fields, fid))
         done += 1
-        if len(pending) >= BATCH:
+        if len(pending) >= batch_size:
             _flush()
             if on_progress:
                 on_progress(done, len(rows))

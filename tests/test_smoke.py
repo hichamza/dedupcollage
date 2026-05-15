@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from dedupcollage import analyze, cluster, fingerprint, organize, scan, select
 from dedupcollage.db import connect, file_counts
 
