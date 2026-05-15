@@ -121,8 +121,10 @@ def scan(
     Returns a dict with ``inserted`` (new rows), ``seen`` (total files walked),
     and ``drive_id``.
 
-    ``on_progress`` is an optional callable taking the running ``seen`` count;
-    it's invoked every batch so the GUI can render progress.
+    ``on_progress`` is an optional callable matching the pipeline-wide
+    ``on_progress(done, total)`` contract. The total file count is unknown
+    until the walk completes, so scan always reports ``total=0``; consumers
+    treat ``total <= 0`` as an indeterminate/busy indicator.
     """
     source = Path(source).resolve()
     if not source.is_dir():
@@ -175,11 +177,11 @@ def scan(
         if len(batch) >= _BATCH_SIZE:
             _flush()
             if on_progress:
-                on_progress(seen)
+                on_progress(seen, 0)
 
     _flush()
     if on_progress:
-        on_progress(seen)
+        on_progress(seen, 0)
 
     log.info("scan: seen=%d inserted=%d", seen, inserted)
     return {"inserted": inserted, "seen": seen, "drive_id": drive_id}

@@ -14,6 +14,33 @@ from dedupcollage import analyze, cluster, fingerprint, organize, scan, select
 from dedupcollage.db import connect, file_counts
 
 
+def test_scan_on_progress_two_arg_contract(tmp_db: Path, image_factory, tmp_path: Path) -> None:
+    """scan() must invoke on_progress(done, total) like every other stage.
+
+    Regression: scan called on_progress(seen) with a single arg, crashing
+    both the GUI closure and the CLI tqdm callback (which require two args)
+    with "progress() missing 1 required positional argument: 'total'".
+    scan has no known total, so it reports total=0 (consumers treat <=0 as
+    an indeterminate/busy indicator).
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    image_factory("src/only.jpg", color=(1, 2, 3))
+
+    calls: list[tuple[int, int]] = []
+
+    def on_progress(done: int, total: int) -> None:  # strict 2-arg, as GUI/CLI
+        calls.append((done, total))
+
+    conn = connect(tmp_db)
+    scan.scan(conn, src, on_progress=on_progress)
+
+    assert calls, "on_progress was never invoked"
+    for done, total in calls:
+        assert done >= 1
+        assert total == 0  # scan total is unknown -> 0
+
+
 def test_pipeline_basic(tmp_db: Path, image_factory, tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
