@@ -30,7 +30,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+#if FileExists(AddBackslash(SourcePath) + "icon.ico")
 SetupIconFile=icon.ico
+#endif
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
