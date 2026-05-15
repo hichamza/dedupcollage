@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeVar
 
+from dedupcollage import __version__
 from dedupcollage._paths import log_dir
 
 LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
@@ -18,15 +19,32 @@ LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 T = TypeVar("T")
 
 
-def setup_logging(level: str = "INFO", to_file: bool = True) -> None:
+def is_prerelease(version: str = __version__) -> bool:
+    """True for PEP 440 pre-release/dev versions (e.g. ``0.1.0a1``, ``1.0rc2``).
+
+    Used to decide the default log verbosity: pre-release builds log at
+    DEBUG for troubleshooting; the first stable version reverts to INFO
+    automatically with no code change.
+    """
+    return bool(re.search(r"(a|b|rc)\d+|\.dev\d*", version))
+
+
+def setup_logging(level: str | None = None, to_file: bool = True) -> None:
     """Configure the root logger. Idempotent.
 
     Logs always go to stderr; if ``to_file`` is True they also go to
-    ``{app_data_dir}/logs/dedupcollage.log`` with daily rotation by date in name.
+    ``{app_data_dir}/logs/dedupcollage-YYYY-MM-DD.log``.
+
+    When ``level`` is None (the default for both entrypoints), the level is
+    chosen from the running version: DEBUG for pre-release builds, INFO for
+    stable releases. An explicit ``level`` (e.g. CLI ``--log-level``) always
+    wins.
     """
     root = logging.getLogger()
     if getattr(root, "_dc_configured", False):
         return
+    if level is None:
+        level = "DEBUG" if is_prerelease() else "INFO"
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
     fmt = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
@@ -35,6 +53,7 @@ def setup_logging(level: str = "INFO", to_file: bool = True) -> None:
     stream.setFormatter(fmt)
     root.addHandler(stream)
 
+    log_path: Path | None = None
     if to_file:
         log_path = log_dir() / f"dedupcollage-{datetime.now().strftime('%Y-%m-%d')}.log"
         fh = logging.FileHandler(log_path, encoding="utf-8")
@@ -42,6 +61,10 @@ def setup_logging(level: str = "INFO", to_file: bool = True) -> None:
         root.addHandler(fh)
 
     root._dc_configured = True  # type: ignore[attr-defined]
+    logging.getLogger(__name__).info(
+        "DedupCollage %s starting - log level %s, file: %s",
+        __version__, level.upper(), log_path or "(stderr only)",
+    )
 
 
 def iso_now() -> str:

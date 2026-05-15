@@ -71,11 +71,12 @@ def _progress_bar(label: str):
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--db", "db_path", type=click.Path(dir_okay=False), default=None,
               help="SQLite database path (default: %LOCALAPPDATA%\\DedupCollage\\dedupcollage.db).")
-@click.option("--log-level", default="INFO", show_default=True,
-              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False))
+@click.option("--log-level", default=None,
+              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+              help="Override log level. Default: DEBUG for pre-release builds, INFO for stable.")
 @click.version_option(__version__, prog_name="dedupcollage")
 @click.pass_context
-def cli(ctx: click.Context, db_path: str | None, log_level: str) -> None:
+def cli(ctx: click.Context, db_path: str | None, log_level: str | None) -> None:
     """DedupCollage — deduplicate photo & video recovery output and graft metadata."""
     setup_logging(level=log_level)
     ctx.ensure_object(dict)
