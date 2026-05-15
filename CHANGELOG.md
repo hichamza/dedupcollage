@@ -4,6 +4,10 @@ All notable changes to DedupCollage are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha] — 2026-05-15
+
+First alpha. Internal v0 validation release; published as a GitHub pre-release.
+
 ### Added
 - Initial pipeline: scan, quickhash, fullhash, analyze, cluster, select, organize.
 - PySide6 GUI: source/output picker, throttle control, live progress, cluster tree, preview pane.
@@ -12,7 +16,3 @@ All notable changes to DedupCollage are documented here. Format follows [Keep a 
 - Resource governor for CPU/RAM/IO throttling (Background / Balanced / Full-speed / Custom).
 - Windows installer via PyInstaller + Inno Setup.
 - GitHub Actions CI for tests and tagged-release installer builds.
-
-## [0.1.0] — planned
-
-Initial v0 internal validation release.

@@ -58,4 +58,4 @@ jobs:
           files: build_output/*.exe
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: true

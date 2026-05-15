@@ -4,7 +4,7 @@
 ; The PyInstaller output folder ../dist/dedupcollage/ must exist before running.
 
 #define MyAppName "DedupCollage"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.0-alpha"
 #define MyAppPublisher "Hicham Zinalabdin"
 #define MyAppURL "https://github.com/hzeduly/dedupcollage"
 #define MyAppExeName "dedupcollage.exe"
