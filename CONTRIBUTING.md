@@ -4,7 +4,7 @@ Thanks for your interest. This project is GPL-3.0 — by contributing you agree 
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/hzeduly/dedupcollage/issues>. Useful information to include:
+Open an issue at <https://github.com/hichamza/dedupcollage/issues>. Useful information to include:
 
 - DedupCollage version (Help → About, or `dedupcollage --version`)
 - Windows version

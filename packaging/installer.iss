@@ -6,7 +6,7 @@
 #define MyAppName "DedupCollage"
 #define MyAppVersion "0.1.0-alpha"
 #define MyAppPublisher "Hicham Zinalabdin"
-#define MyAppURL "https://github.com/hzeduly/dedupcollage"
+#define MyAppURL "https://github.com/hichamza/dedupcollage"
 #define MyAppExeName "dedupcollage.exe"
 
 [Setup]

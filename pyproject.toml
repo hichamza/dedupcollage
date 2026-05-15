@@ -29,9 +29,9 @@ classifiers = [
 dynamic = ["dependencies"]
 
 [project.urls]
-Homepage = "https://github.com/hzeduly/dedupcollage"
-Repository = "https://github.com/hzeduly/dedupcollage"
-Issues = "https://github.com/hzeduly/dedupcollage/issues"
+Homepage = "https://github.com/hichamza/dedupcollage"
+Repository = "https://github.com/hichamza/dedupcollage"
+Issues = "https://github.com/hichamza/dedupcollage/issues"
 
 [project.scripts]
 dedupcollage = "dedupcollage.cli:main"

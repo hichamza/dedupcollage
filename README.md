@@ -58,7 +58,7 @@ To add more drives later: click **Add drive**, scan, then **Apply** — the tool
 ## Build from source
 
 ```powershell
-git clone https://github.com/hichamza/dedupcollage/dedupcollage.git
+git clone https://github.com/hichamza/dedupcollage.git
 cd dedupcollage
 python -m venv .venv
 .venv\Scripts\activate
