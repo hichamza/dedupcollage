@@ -1,0 +1,62 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "DedupCollage GUI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dedupcollage.gui",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "DedupCollage CLI — status",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dedupcollage",
+      "args": ["status"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "DedupCollage CLI — scan (prompts for source)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dedupcollage",
+      "args": ["scan", "--source", "${input:sourcePath}"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "DedupCollage CLI — all (prompts for source + output)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dedupcollage",
+      "args": ["all", "--source", "${input:sourcePath}", "--output", "${input:outputPath}"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Pytest: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    { "id": "sourcePath", "type": "promptString", "description": "Source folder to scan (e.g. D:\\Recovery)" },
+    { "id": "outputPath", "type": "promptString", "description": "Output folder for the clean tree (e.g. E:\\Clean)" }
+  ]
+}

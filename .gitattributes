@@ -1,0 +1,21 @@
+# Default: normalize text files in the repo to LF; convert to native on checkout
+* text=auto
+
+# Treat shell scripts and Python explicitly as LF
+*.sh   text eol=lf
+*.py   text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Windows-specific files stay CRLF
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+*.iss  text eol=crlf
+
+# Binaries
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.exe   binary
+*.dll   binary

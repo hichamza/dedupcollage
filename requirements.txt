@@ -1,0 +1,25 @@
+# Runtime dependencies for DedupCollage
+# Pinned to known-good major versions for reproducibility.
+
+# Image decoding & processing
+Pillow>=10.2.0,<11
+pillow-heif>=0.16.0,<1
+rawpy>=0.21.0,<1
+numpy>=1.26.0,<3
+
+# Hashing
+xxhash>=3.4.0,<4
+imagehash>=4.3.1,<5
+
+# CLI & progress
+click>=8.1.0,<9
+tqdm>=4.66.0,<5
+
+# Resource monitoring (throttle governor + drive enumeration)
+psutil>=5.9.0,<7
+
+# GUI
+PySide6>=6.6.0,<7
+
+# Windows-specific: drive identity + process priority
+pywin32>=306; sys_platform == "win32"

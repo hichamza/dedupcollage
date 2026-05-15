@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# IDE — keep workspace config, ignore personal state
+.idea/
+*.swp
+*~
+.DS_Store
+
+# DedupCollage runtime artifacts
+*.db
+*.db-wal
+*.db-shm
+*.log
+dedupcollage.db
+manifest.csv
+appdata/
+
+# Packaging — third-party binaries are fetched at build, not committed
+packaging/third_party/
+*.exe
+*.msi
+build_output/
+
+# Local user config
+.env
+.probe

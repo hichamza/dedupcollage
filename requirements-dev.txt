@@ -1,0 +1,12 @@
+-r requirements.txt
+
+# Test
+pytest>=8.0.0,<9
+pytest-cov>=4.1.0,<6
+
+# Lint & format
+ruff>=0.4.0,<1
+mypy>=1.9.0,<2
+
+# Packaging
+pyinstaller>=6.5.0,<7

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dedupcollage"
+version = "0.1.0"
+description = "Dedupe photo & video recovery output by clustering near-duplicates, picking the best copy, and grafting metadata from sibling files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Hicham Zinalabdin" }]
+keywords = ["dedup", "photos", "recovery", "exif", "duplicates"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: System :: Archiving",
+    "Topic :: Utilities",
+]
+dynamic = ["dependencies"]
+
+[project.urls]
+Homepage = "https://github.com/hzeduly/dedupcollage"
+Repository = "https://github.com/hzeduly/dedupcollage"
+Issues = "https://github.com/hzeduly/dedupcollage/issues"
+
+[project.scripts]
+dedupcollage = "dedupcollage.cli:main"
+
+[project.gui-scripts]
+dedupcollage-gui = "dedupcollage.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RET"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

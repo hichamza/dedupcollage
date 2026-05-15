@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install dev dependencies",
+      "type": "shell",
+      "command": "pip install -r requirements-dev.txt && pip install -e .",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Lint (ruff)",
+      "type": "shell",
+      "command": "ruff check src tests",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Format (ruff)",
+      "type": "shell",
+      "command": "ruff format src tests",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test (pytest)",
+      "type": "shell",
+      "command": "pytest -v",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Fetch third-party binaries (exiftool, ffmpeg)",
+      "type": "shell",
+      "command": "python packaging/fetch_third_party.py",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build installer (PyInstaller)",
+      "type": "shell",
+      "command": "pyinstaller --clean packaging/dedupcollage.spec",
+      "group": "build",
+      "dependsOn": ["Fetch third-party binaries (exiftool, ffmpeg)"],
+      "problemMatcher": []
+    }
+  ]
+}
