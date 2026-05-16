@@ -970,22 +970,21 @@ def test_default_checked_unchecks_flagged() -> None:
 
 
 def test_make_include_predicate() -> None:
-    inc = make_include({"", "photos"})
+    inc = make_include({"", "photos", "photos/2024"})
     assert inc("photos") is True
-    assert inc("photos/2024") is True       # descendant of checked
+    assert inc("photos/2024") is True       # individually selected
     assert inc("junk") is False
+    # Unchecked child excluded even though its parent 'photos' is checked.
+    assert inc("photos/raw") is False
 
 
-def test_make_include_root_semantics() -> None:
-    inc_root = make_include({""})
-    assert inc_root("") is True
-    assert inc_root("anything/deep") is True
-    inc_sub = make_include({"photos"})
-    assert inc_sub("") is False             # root not checked
-    assert inc_sub("docs") is False
-    # Parent checked, child not enumerated -> still included (subtree
-    # expansion; the GUI must omit a partially-selected parent).
-    assert inc_sub("photos/raw") is True
+def test_make_include_membership_is_exact() -> None:
+    inc = make_include({"", "a", "a/keepme"})
+    assert inc("") is True
+    assert inc("a") is True
+    assert inc("a/keepme") is True
+    assert inc("a/raw") is False            # not selected -> excluded
+    assert inc("b") is False
 
 
 def test_default_checked_nested_recursion() -> None:
@@ -1031,20 +1030,17 @@ def default_checked(root: DirNode, *, skip_noise: bool) -> set[str]:
 def make_include(checked: set[str]):
     """Build the scan ``include(relpath)`` predicate from a checked set.
 
-    ``checked`` MUST be the set of *fully-selected subtree roots*: a dir
-    appears only if it AND all its descendants are selected. A partially
-    selected dir must be omitted and its still-checked children listed
-    individually (the GUI tree -> set construction is responsible for
-    this invariant). Given it, ``include(r)`` is True iff ``r`` is a
-    checked root or lies under one.
+    ``checked`` is the full set of selected directory relpaths. The
+    discovery tree enumerates every directory and ``default_checked`` /
+    the GUI list each one individually, so membership is **exact**: a
+    directory is walked iff its own relpath is in the set. This means
+    unchecking a child excludes it even when its parent stays checked
+    (no subtree-prefix expansion, so no accidental re-inclusion).
     """
     norm = {c.strip("/") for c in checked}
 
     def include(relpath: str) -> bool:
-        r = relpath.strip("/")
-        if r in norm:
-            return True
-        return any(r == c or r.startswith(c + "/") for c in norm if c)
+        return relpath.strip("/") in norm
 
     return include
 ```
