@@ -321,7 +321,7 @@ git commit -m "feat(discovery): DirNode tree + low-media-ratio flag rule"
 
 - [ ] **Step 1: Add `_walk()` and a name-hint set; keep `iter_candidate_files` working**
 
-In `src/dedupcollage/scan.py`, add after `log = logging.getLogger(__name__)` (line 24) / near `_BATCH_SIZE`:
+In `src/dedupcollage/scan.py`, add `Callable` to the existing `from collections.abc import ...` line (so it reads `from collections.abc import Callable, Iterator`), then add after `log = logging.getLogger(__name__)` / near `_BATCH_SIZE`:
 
 ```python
 # Directory names shown as a muted hint label in the GUI tree. NOT used
@@ -340,12 +340,15 @@ def name_hint(dirname: str) -> str | None:
     return NAME_HINTS.get(dirname.lower())
 
 
-def _walk(root: Path, *, prune=None):
-    """Yield (dirpath, filenames) per directory under ``root``.
+def _walk(
+    root: Path, *, prune: Callable[[str, str], bool] | None = None
+) -> Iterator[tuple[str, list[str], dict[str, int]]]:
+    """Yield ``(dirpath, filenames, counts)`` per directory under ``root``.
 
     ``prune(dirpath, dirname) -> bool`` returns True to skip descending
-    into a subdirectory. Inaccessible dirs are logged and counted; the
-    returned counter dict has key ``inaccessible``.
+    into a subdirectory. ``counts`` is the same dict object on every
+    iteration; read ``counts["inaccessible"]`` after the loop for the
+    final tally of directories that errored (each is logged and skipped).
     """
     counts = {"inaccessible": 0}
 
