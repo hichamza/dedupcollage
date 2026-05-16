@@ -279,17 +279,16 @@ class MainWindow(QMainWindow):
         if not source or not output:
             self.statusBar().showMessage("Both Source and Output are required.", 5000)
             return
-        self.index_btn.setEnabled(False)
-        self.discover_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.stage_label.setText("starting…")
-
         checked = self._checked_relpaths()
         if not checked:
             self.statusBar().showMessage(
                 "Run discovery and select folders first.", 5000)
             return
         include = make_include(checked)
+        self.index_btn.setEnabled(False)
+        self.discover_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.stage_label.setText("starting…")
         self._worker = PipelineWorker(
             db_path=self._db_path,
             source=Path(source),
