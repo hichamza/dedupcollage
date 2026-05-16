@@ -449,7 +449,7 @@ Expected: FAIL — `AttributeError: module 'dedupcollage.scan' has no attribute 
 Add to `src/dedupcollage/scan.py`. Add `import time` to the stdlib import block (correct I001 order), and import the tree builder at top: `from dedupcollage.discovery import DirNode, build_tree`. Then add:
 
 ```python
-def _heartbeat_gate(state: dict) -> bool:
+def _heartbeat_gate(state: dict[str, float]) -> bool:
     now = time.monotonic()
     if state["examined"] - state["last_n"] >= _HEARTBEAT_EVERY or \
        now - state["last_t"] >= _HEARTBEAT_SECS:
@@ -479,7 +479,7 @@ def discover(
         try:
             rel = str(Path(dirpath).relative_to(root)).replace("\\", "/")
         except ValueError:
-            rel = ""
+            rel = ""  # symlink/junction escaping root -> attribute to root
         rel = "" if rel == "." else rel
         own_total = len(filenames)
         own_media = sum(1 for n in filenames if n.lower().endswith(ext_lower))
