@@ -324,8 +324,6 @@ git commit -m "feat(discovery): DirNode tree + low-media-ratio flag rule"
 In `src/dedupcollage/scan.py`, add after `log = logging.getLogger(__name__)` (line 24) / near `_BATCH_SIZE`:
 
 ```python
-import time  # add to the stdlib imports at top of file
-
 # Directory names shown as a muted hint label in the GUI tree. NOT used
 # to skip or flag — selection is evidence-based (see discovery.py).
 NAME_HINTS = {
@@ -445,7 +443,7 @@ Expected: FAIL — `AttributeError: module 'dedupcollage.scan' has no attribute 
 
 - [ ] **Step 3: Implement `discover()`**
 
-Add to `src/dedupcollage/scan.py` (import the tree builder at top: `from dedupcollage.discovery import DirNode, build_tree`):
+Add to `src/dedupcollage/scan.py`. Add `import time` to the stdlib import block (correct I001 order), and import the tree builder at top: `from dedupcollage.discovery import DirNode, build_tree`. Then add:
 
 ```python
 def _heartbeat_gate(state: dict) -> bool:
