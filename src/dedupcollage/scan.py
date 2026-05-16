@@ -200,6 +200,59 @@ def discover(
     return build_tree(rows)
 
 
+def _mark_completed(
+    conn, drive_id: int, walked: list[str],
+    tally: dict[str, list[int]], include_pruned: set[str],
+) -> None:
+    """Write ``scanned_dirs`` rows post-order, O(number of dirs).
+
+    A directory is marked complete only if **no** ``include``-pruned
+    directory lies within its subtree — such a subtree is intentionally
+    left without a completion row so a later resume still re-walks it.
+    Resume-pruned children do NOT block completion: they already carry
+    their own completion rows from a prior run. Subtree counts are
+    aggregated single-pass from each dir's immediate children
+    (deepest-first; root processed last), avoiding the O(D^2) scan.
+    """
+    def _depth(r: str) -> int:
+        return 0 if r == "" else r.count("/") + 1
+
+    order = sorted(set(walked), key=_depth, reverse=True)
+    children: dict[str, list[str]] = {}
+    for rel in set(walked):
+        if rel == "":
+            continue
+        parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        children.setdefault(parent, []).append(rel)
+
+    subtree: dict[str, list[int]] = {}
+    for rel in order:
+        own = tally.get(rel, [0, 0])
+        t, m = own[0], own[1]
+        for c in children.get(rel, ()):
+            ct, cm = subtree.get(c, [0, 0])
+            t += ct
+            m += cm
+        subtree[rel] = [t, m]
+
+    def _blocked(rel: str) -> bool:
+        if not include_pruned:
+            return False
+        if rel == "":
+            return True
+        return any(pr == rel or pr.startswith(rel + "/") for pr in include_pruned)
+
+    with transaction(conn):
+        for rel in order:
+            if _blocked(rel):
+                continue
+            t, m = subtree.get(rel, [0, 0])
+            mark_dir_scanned(
+                conn, drive_id=drive_id, relpath=rel,
+                file_count=t, media_count=m,
+            )
+
+
 def index(
     conn,
     source: Path,
@@ -217,8 +270,9 @@ def index(
     ``include(relpath) -> bool``: walk a directory only if True (default
     all). ``resume``: skip dirs with a scanned_dirs row. ``skip_indexed``:
     within walked dirs, skip files already indexed for this drive.
-    ``force``: ignore resume + skip_indexed. Marks each directory's
-    subtree complete in post-order. Heartbeat via ``on_progress``.
+    ``force``: ignore resume + skip_indexed. Directories are marked
+    complete post-order, EXCEPT any whose subtree had an ``include``-
+    pruned directory (left resumable). Heartbeat via ``on_progress``.
     """
     source = Path(source).resolve()
     if not source.is_dir():
@@ -246,16 +300,19 @@ def index(
     tally: dict[str, list[int]] = {}
     state = {"examined": 0, "last_n": 0, "last_t": time.monotonic()}
 
+    include_pruned: set[str] = set()
+
     def _rel(p: Path) -> str:
         try:
             r = str(p.relative_to(source)).replace("\\", "/")
         except ValueError:
-            return str(p)
+            return ""  # symlink/junction escaping source -> attribute to root
         return "" if r in (".", "") else r
 
     def _prune(dirpath: str, dirname: str) -> bool:
         child_rel = _rel(Path(dirpath) / dirname)
         if include is not None and not include(child_rel):
+            include_pruned.add(child_rel)
             return True
         return bool(resume and child_rel in done_dirs)
 
@@ -308,19 +365,7 @@ def index(
     if on_progress:
         on_progress(state["examined"], 0)
 
-    # Post-order completion: a dir is complete only once all its
-    # descendants were walked. Mark deepest-first; every walked dir's
-    # subtree is fully covered because os.walk visited it all.
-    with transaction(conn):
-        for rel in sorted(walked, key=lambda r: r.count("/"), reverse=True):
-            sub_t = sum(t for r, (t, _m) in tally.items() if r == rel or r.startswith(rel + "/")) \
-                if rel else sum(t for _r, (t, _m) in tally.items())
-            sub_m = sum(m for r, (_t, m) in tally.items() if r == rel or r.startswith(rel + "/")) \
-                if rel else sum(m for _r, (_t, m) in tally.items())
-            mark_dir_scanned(
-                conn, drive_id=drive_id, relpath=rel,
-                file_count=sub_t, media_count=sub_m,
-            )
+    _mark_completed(conn, drive_id, walked, tally, include_pruned)
 
     log.info("scan: seen=%d inserted=%d inaccessible=%d",
              seen, inserted, counts["inaccessible"])

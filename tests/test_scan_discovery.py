@@ -144,3 +144,46 @@ def test_index_incomplete_dir_skips_indexed_files(tmp_db: Path, tmp_path: Path, 
     res = scan_mod.index(conn, src, resume=True, skip_indexed=True)
     assert res["inserted"] == 1              # only the new k2; k1 skipped
     assert dbmod.is_dir_scanned(conn, drive_id=drive_id, relpath="keep")
+
+
+def test_index_include_prune_keeps_subtree_resumable(
+    tmp_db: Path, tmp_path: Path, image_factory
+) -> None:
+    (tmp_path / "src/a/b/c").mkdir(parents=True)
+    image_factory("src/a/b/c/deep.jpg", color=(3, 3, 3))
+    image_factory("src/a/top.jpg", color=(4, 4, 4))
+    src = tmp_path / "src"
+    conn = connect(tmp_db)
+    r1 = scan_mod.index(conn, src, include=lambda rel: rel != "a/b/c")
+    drive_id = r1["drive_id"]
+    sc = dbmod.scanned_relpaths(conn, drive_id=drive_id)
+    assert "a/b/c" not in sc
+    assert "a/b" not in sc
+    assert "" not in sc
+    assert dbmod.indexed_relpaths(conn, drive_id=drive_id) == {"a/top.jpg"}
+    r2 = scan_mod.index(conn, src, resume=True)
+    assert r2["inserted"] == 1
+    assert "a/b/c/deep.jpg" in dbmod.indexed_relpaths(conn, drive_id=drive_id)
+
+
+def test_index_post_order_prefix_collision(
+    tmp_db: Path, tmp_path: Path, image_factory
+) -> None:
+    (tmp_path / "src/keep").mkdir(parents=True)
+    (tmp_path / "src/keeper").mkdir(parents=True)
+    image_factory("src/keep/a.jpg", color=(1, 1, 1))
+    image_factory("src/keeper/b.jpg", color=(2, 2, 2))
+    image_factory("src/keeper/c.jpg", color=(3, 3, 3))
+    src = tmp_path / "src"
+    conn = connect(tmp_db)
+    drive_id = scan_mod.index(conn, src)["drive_id"]
+    keep_row = conn.execute(
+        "SELECT file_count, media_count FROM scanned_dirs "
+        "WHERE drive_id=? AND relpath='keep'", (drive_id,)
+    ).fetchone()
+    keeper_row = conn.execute(
+        "SELECT file_count, media_count FROM scanned_dirs "
+        "WHERE drive_id=? AND relpath='keeper'", (drive_id,)
+    ).fetchone()
+    assert tuple(keep_row) == (1, 1)
+    assert tuple(keeper_row) == (2, 2)
