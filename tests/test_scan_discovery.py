@@ -4,9 +4,11 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 from dedupcollage import db as dbmod
 from dedupcollage import scan as scan_mod
+from dedupcollage.cli import cli
 from dedupcollage.db import connect
 from dedupcollage.discovery import build_tree
 
@@ -187,3 +189,16 @@ def test_index_post_order_prefix_collision(
     ).fetchone()
     assert tuple(keep_row) == (1, 1)
     assert tuple(keeper_row) == (2, 2)
+
+
+def test_cli_scan_list_only(tmp_db: Path, tmp_path: Path, image_factory) -> None:
+    (tmp_path / "src/photos").mkdir(parents=True)
+    image_factory("src/photos/a.jpg", color=(1, 2, 3))
+    r = CliRunner().invoke(
+        cli, ["--db", str(tmp_db), "scan", "--source", str(tmp_path / "src"),
+              "--list-only"],
+    )
+    assert r.exit_code == 0, r.output
+    assert "photos" in r.output
+    # --list-only must not write file rows.
+    assert dbmod.indexed_relpaths(connect(tmp_db), drive_id=1) == set()

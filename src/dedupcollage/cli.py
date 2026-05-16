@@ -92,12 +92,56 @@ def _open(ctx: click.Context):
 @cli.command()
 @click.option("--source", required=True, type=click.Path(exists=True, file_okay=False))
 @click.option("--label", default=None, help="Friendly label for this drive.")
+@click.option("--resume/--no-resume", default=True, help="Skip completed dirs.")
+@click.option("--skip-indexed/--no-skip-indexed", default=True,
+              help="Skip files already indexed (within re-walked dirs).")
+@click.option("--min-media-ratio", type=float, default=None,
+              help="Override noise flag ratio (default 0.01). Affects --list-only.")
+@click.option("--exclude", "excludes", multiple=True,
+              help="Relpath under SOURCE to exclude (repeatable).")
+@click.option("--force-rescan", is_flag=True, default=False,
+              help="Ignore resume/skip-indexed; re-walk everything.")
+@click.option("--list-only", is_flag=True, default=False,
+              help="Run discovery only; print the tree and exit.")
 @click.pass_context
-def scan(ctx, source: str, label: str | None) -> None:
-    """Stage 0 — walk SOURCE and index every file (cheap, no content read)."""
+def scan(ctx, source: str, label: str | None, resume: bool, skip_indexed: bool,
+         min_media_ratio: float | None, excludes: tuple[str, ...],
+         force_rescan: bool, list_only: bool) -> None:
+    """Stage 0 — discover, then index SOURCE (cheap, no content read)."""
     conn = _open(ctx)
-    result = scan_mod.scan(conn, Path(source), label=label, on_progress=_progress_bar("scan"))
-    click.echo(f"scan: inserted={result['inserted']} seen={result['seen']} drive_id={result['drive_id']}")
+    src = Path(source)
+    if min_media_ratio is not None:
+        import dedupcollage.discovery as _disc
+        _disc.MEDIA_RATIO = min_media_ratio
+
+    if list_only:
+        root = scan_mod.discover(src, on_progress=_progress_bar("discover"))
+
+        def _print(node, depth=0):
+            tag = " [noise]" if node.flagged else ""
+            name = node.name or src.name
+            click.echo(f"{'  ' * depth}{name}  "
+                       f"({node.media_files}/{node.total_files} media){tag}")
+            for c in sorted(node.children.values(), key=lambda n: n.name):
+                _print(c, depth + 1)
+        _print(root)
+        return
+
+    ex = {e.replace("\\", "/").strip("/") for e in excludes}
+
+    def _include(rel: str) -> bool:
+        return not any(rel == e or rel.startswith(e + "/") for e in ex)
+
+    result = scan_mod.index(
+        conn, src, label=label, include=_include if ex else None,
+        resume=resume, skip_indexed=skip_indexed, force=force_rescan,
+        on_progress=_progress_bar("scan"),
+    )
+    click.echo(
+        f"scan: inserted={result['inserted']} seen={result['seen']} "
+        f"drive_id={result['drive_id']} "
+        f"inaccessible_dirs={result['inaccessible_dirs']}"
+    )
 
 
 @cli.command()
