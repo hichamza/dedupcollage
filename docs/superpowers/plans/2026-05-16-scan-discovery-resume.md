@@ -182,7 +182,7 @@ git commit -m "feat(db): scanned_dirs table + drive-stable file index + helpers"
 
 ```python
 # append to tests/test_scan_discovery.py
-from dedupcollage.discovery import DirNode, build_tree
+from dedupcollage.discovery import build_tree
 
 
 def test_build_tree_rolls_up_and_flags() -> None:
@@ -200,8 +200,8 @@ def test_build_tree_rolls_up_and_flags() -> None:
     assert photos.total_files == 50 and photos.media_files == 50
     assert photos.flagged is False
     nm = root.child("node_modules")
-    assert nm.total_files == 801 and nm.media_files == 1
-    assert nm.flagged is True  # 801>=20 and 1/801 < 0.01
+    assert nm.total_files == 800 and nm.media_files == 1
+    assert nm.flagged is True  # 800>=20 and 1/800 < 0.01
     # Root is not flagged: 51/850 ~ 6% media.
     assert root.flagged is False
 
@@ -248,7 +248,7 @@ class DirNode:
     own_media: int = 0
     total_files: int = 0               # recursive (filled by build_tree)
     media_files: int = 0               # recursive
-    children: dict[str, "DirNode"] = field(default_factory=dict)
+    children: dict[str, DirNode] = field(default_factory=dict)
 
     @property
     def flagged(self) -> bool:
@@ -257,7 +257,7 @@ class DirNode:
             return False
         return (self.media_files / self.total_files) < MEDIA_RATIO
 
-    def child(self, name: str) -> "DirNode":
+    def child(self, name: str) -> DirNode:
         return self.children[name]
 
 
