@@ -4,6 +4,17 @@ All notable changes to DedupCollage are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] — 2026-05-16
+
+### Fixed
+- Scanning from the GUI crashed with `progress() missing 1 required positional argument: 'total'`. `scan` now honors the pipeline-wide `on_progress(done, total)` contract (reports `total=0` for its unbounded walk).
+
+### Changed
+- Pre-release builds now log at DEBUG by default for troubleshooting; stable releases stay at INFO automatically. CLI `--log-level` still overrides. Startup logs the version and log-file path.
+
+### Added
+- Regression test for the `scan` two-arg progress contract.
+
 ## [0.1.0-alpha] — 2026-05-15
 
 First alpha. Internal v0 validation release; published as a GitHub pre-release.
