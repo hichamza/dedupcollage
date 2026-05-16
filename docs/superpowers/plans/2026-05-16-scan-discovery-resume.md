@@ -644,6 +644,7 @@ def index(
         batch.clear()
 
     walked: list[str] = []
+    counts: dict[str, int] = {"inaccessible": 0}  # bound even if _walk yields nothing
     for dirpath, filenames, counts in _walk(source, prune=_prune):
         rel = _rel(Path(dirpath))
         if resume and rel in done_dirs:
