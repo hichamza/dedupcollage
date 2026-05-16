@@ -851,8 +851,8 @@ def test_cli_scan_list_only(tmp_db: Path, tmp_path: Path, image_factory) -> None
     )
     assert r.exit_code == 0, r.output
     assert "photos" in r.output
-    # --list-only must not write file rows.
-    assert dbmod.indexed_relpaths(connect(tmp_db), drive_id=1) == set()
+    # --list-only must not write ANY file rows (drive-agnostic check).
+    assert connect(tmp_db).execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -886,21 +886,28 @@ def scan(ctx, source: str, label: str | None, resume: bool, skip_indexed: bool,
     """Stage 0 — discover, then index SOURCE (cheap, no content read)."""
     conn = _open(ctx)
     src = Path(source)
-    if min_media_ratio is not None:
-        import dedupcollage.discovery as _disc
-        _disc.MEDIA_RATIO = min_media_ratio
 
     if list_only:
-        root = scan_mod.discover(src, on_progress=_progress_bar("discover"))
+        # --min-media-ratio only affects the noise flag shown here. Scope the
+        # override to this block and always restore it (CliRunner is in-process;
+        # an unrestored global mutation pollutes other tests/invocations).
+        import dedupcollage.discovery as _disc
+        _orig_ratio = _disc.MEDIA_RATIO
+        if min_media_ratio is not None:
+            _disc.MEDIA_RATIO = min_media_ratio
+        try:
+            root = scan_mod.discover(src, on_progress=_progress_bar("discover"))
 
-        def _print(node, depth=0):
-            tag = " [noise]" if node.flagged else ""
-            name = node.name or src.name
-            click.echo(f"{'  ' * depth}{name}  "
-                       f"({node.media_files}/{node.total_files} media){tag}")
-            for c in sorted(node.children.values(), key=lambda n: n.name):
-                _print(c, depth + 1)
-        _print(root)
+            def _print(node, depth=0):
+                tag = " [noise]" if node.flagged else ""
+                name = node.name or src.name
+                click.echo(f"{'  ' * depth}{name}  "
+                           f"({node.media_files}/{node.total_files} media){tag}")
+                for c in sorted(node.children.values(), key=lambda n: n.name):
+                    _print(c, depth + 1)
+            _print(root)
+        finally:
+            _disc.MEDIA_RATIO = _orig_ratio
         return
 
     ex = {e.replace("\\", "/").strip("/") for e in excludes}
