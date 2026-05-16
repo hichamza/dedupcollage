@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -66,9 +67,9 @@ class PipelineWorker(QThread):
         throttle: str = "balanced",
         hamming: int = 8,
         label: str | None = None,
-        include=None,
-        resume: bool = True,
-        skip_indexed: bool = True,
+        include: Callable[[str], bool] | None = None,
+        resume: bool = False,
+        skip_indexed: bool = False,
         force: bool = False,
     ) -> None:
         super().__init__()

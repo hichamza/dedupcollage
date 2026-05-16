@@ -238,3 +238,14 @@ def test_default_checked_nested_recursion() -> None:
     assert "" in checked and "a" in checked
     assert "a/keepme" in checked            # unflagged child kept
     assert "a/b" not in checked             # flagged (30 files, 0 media)
+
+
+def test_pipeline_worker_scan_param_defaults() -> None:
+    import inspect
+
+    from dedupcollage.gui.worker import PipelineWorker
+    params = inspect.signature(PipelineWorker.__init__).parameters
+    assert params["include"].default is None
+    assert params["resume"].default is False
+    assert params["skip_indexed"].default is False
+    assert params["force"].default is False
