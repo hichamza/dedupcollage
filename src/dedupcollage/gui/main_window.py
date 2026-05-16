@@ -17,6 +17,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -105,14 +106,39 @@ class MainWindow(QMainWindow):
 
         controls_row.addStretch(1)
 
-        self.start_btn = QPushButton("Start")
-        self.start_btn.clicked.connect(self.start_pipeline)
+        self.discover_btn = QPushButton("Scan (discover)")
+        self.discover_btn.clicked.connect(self.start_discovery)
+        self.index_btn = QPushButton("Start indexing")
+        self.index_btn.clicked.connect(self.start_pipeline)
+        self.index_btn.setEnabled(False)
         self.stop_btn = QPushButton("Stop")
         self.stop_btn.clicked.connect(self.stop_pipeline)
         self.stop_btn.setEnabled(False)
-        controls_row.addWidget(self.start_btn)
+        controls_row.addWidget(self.discover_btn)
+        controls_row.addWidget(self.index_btn)
         controls_row.addWidget(self.stop_btn)
         layout.addLayout(controls_row)
+
+        # ----- Options + discovery tree -----
+        options_row = QHBoxLayout()
+        self.cb_skip_noise = QCheckBox("Skip noise dirs (low-ratio)")
+        self.cb_skip_noise.setChecked(True)
+        self.cb_resume = QCheckBox("Resume (skip completed dirs)")
+        self.cb_resume.setChecked(True)
+        self.cb_skip_indexed = QCheckBox("Skip already-indexed files")
+        self.cb_skip_indexed.setChecked(True)
+        self.cb_force = QCheckBox("Force full re-scan")
+        self.cb_force.setChecked(False)
+        for w in (self.cb_skip_noise, self.cb_resume,
+                  self.cb_skip_indexed, self.cb_force):
+            options_row.addWidget(w)
+        options_row.addStretch(1)
+        layout.addLayout(options_row)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Folder", "media / total"])
+        self.tree.setColumnWidth(0, 420)
+        layout.addWidget(self.tree, stretch=1)
 
         # ----- Progress row -----
         progress_row = QHBoxLayout()
@@ -166,22 +192,92 @@ class MainWindow(QMainWindow):
 
     # ---------- pipeline lifecycle ----------
 
+    def start_discovery(self) -> None:
+        from dedupcollage.gui.worker import DiscoveryWorker
+        source = self.source_edit.text().strip()
+        if not source:
+            self.statusBar().showMessage("Pick a source folder first", 5000)
+            return
+        self.tree.clear()
+        self.index_btn.setEnabled(False)
+        self.discover_btn.setEnabled(False)
+        self.stage_label.setText("Discovering…")
+        self.progress.setRange(0, 0)
+        self._disc = DiscoveryWorker(Path(source))
+        self._disc.progress.connect(self._on_stage_progress)
+        self._disc.finished_tree.connect(self._on_discovered)
+        self._disc.failed.connect(self._on_pipeline_error)
+        self._disc.start()
+
+    def _on_discovered(self, root) -> None:
+        from dedupcollage import scan as scan_mod
+        from dedupcollage.gui.selection import default_checked
+        self._disc_root = root
+        checked = default_checked(root, skip_noise=self.cb_skip_noise.isChecked())
+
+        def add(node, parent_item):
+            label = node.name or self.source_edit.text().strip()
+            hint = scan_mod.name_hint(node.name) if node.name else None
+            text = label + (f"  ({hint})" if hint else "")
+            it = QTreeWidgetItem(parent_item, [
+                text, f"{node.media_files}/{node.total_files}"])
+            it.setData(0, Qt.ItemDataRole.UserRole, node.relpath)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(
+                0,
+                Qt.CheckState.Checked if node.relpath in checked
+                else Qt.CheckState.Unchecked,
+            )
+            for c in sorted(node.children.values(), key=lambda n: n.name):
+                add(c, it)
+            return it
+
+        # QTreeWidgetItem(self.tree, ...) already inserts as a top-level
+        # item; do NOT also call addTopLevelItem (double-add).
+        top = add(root, self.tree)
+        top.setExpanded(True)
+        self.stage_label.setText("Select folders, then Start indexing")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.index_btn.setEnabled(True)
+        self.discover_btn.setEnabled(True)
+
+    def _checked_relpaths(self) -> set[str]:
+        out: set[str] = set()
+
+        def walk(item):
+            if item.checkState(0) == Qt.CheckState.Checked:
+                out.add(item.data(0, Qt.ItemDataRole.UserRole))
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+        return out
+
     def start_pipeline(self) -> None:
         source = self.source_edit.text().strip()
         output = self.output_edit.text().strip()
         if not source or not output:
             self.statusBar().showMessage("Both Source and Output are required.", 5000)
             return
-        self.start_btn.setEnabled(False)
+        self.index_btn.setEnabled(False)
+        self.discover_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.stage_label.setText("starting…")
 
+        from dedupcollage.gui.selection import make_include
+        include = make_include(self._checked_relpaths())
         self._worker = PipelineWorker(
             db_path=self._db_path,
             source=Path(source),
             output=Path(output),
             throttle=self.throttle_combo.currentData(),
             hamming=self.match_combo.currentData(),
+            include=include,
+            resume=self.cb_resume.isChecked(),
+            skip_indexed=self.cb_skip_indexed.isChecked(),
+            force=self.cb_force.isChecked(),
         )
         self._worker.stage_started.connect(self._on_stage_started)
         self._worker.stage_progress.connect(self._on_stage_progress)
@@ -215,7 +311,8 @@ class MainWindow(QMainWindow):
         self.stage_label.setText("done")
         self.progress.setRange(0, 100)
         self.progress.setValue(100)
-        self.start_btn.setEnabled(True)
+        self.discover_btn.setEnabled(True)
+        self.index_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self._refresh_clusters_timer.stop()
         self.refresh_clusters()
@@ -223,7 +320,8 @@ class MainWindow(QMainWindow):
     def _on_pipeline_error(self, msg: str) -> None:
         self.stage_label.setText("error")
         self.statusBar().showMessage(msg, 0)
-        self.start_btn.setEnabled(True)
+        self.discover_btn.setEnabled(True)
+        self.index_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self._refresh_clusters_timer.stop()
 
