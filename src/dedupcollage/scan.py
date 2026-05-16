@@ -19,7 +19,14 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-from dedupcollage.db import insert_scanned_files, transaction, upsert_drive
+from dedupcollage.db import (
+    indexed_relpaths,
+    insert_scanned_files,
+    mark_dir_scanned,
+    scanned_relpaths,
+    transaction,
+    upsert_drive,
+)
 from dedupcollage.discovery import DirNode, build_tree
 from dedupcollage.utils import DEFAULT_EXTENSIONS, classify_kind
 
@@ -193,44 +200,64 @@ def discover(
     return build_tree(rows)
 
 
-def scan(
+def index(
     conn,
     source: Path,
     *,
     label: str | None = None,
     extensions: tuple[str, ...] = DEFAULT_EXTENSIONS,
+    include=None,
+    resume: bool = False,
+    skip_indexed: bool = False,
+    force: bool = False,
     on_progress=None,
 ) -> dict[str, int]:
-    """Walk ``source`` and insert all matching files into the index.
+    """Index media files under ``source`` into the DB.
 
-    Returns a dict with ``inserted`` (new rows), ``seen`` (total files walked),
-    and ``drive_id``.
-
-    ``on_progress`` is an optional callable matching the pipeline-wide
-    ``on_progress(done, total)`` contract. The total file count is unknown
-    until the walk completes, so scan always reports ``total=0``; consumers
-    treat ``total <= 0`` as an indeterminate/busy indicator.
+    ``include(relpath) -> bool``: walk a directory only if True (default
+    all). ``resume``: skip dirs with a scanned_dirs row. ``skip_indexed``:
+    within walked dirs, skip files already indexed for this drive.
+    ``force``: ignore resume + skip_indexed. Marks each directory's
+    subtree complete in post-order. Heartbeat via ``on_progress``.
     """
     source = Path(source).resolve()
     if not source.is_dir():
         raise NotADirectoryError(f"source root is not a directory: {source}")
 
     serial = get_volume_serial(source)
-    drive_label = label or get_volume_label(source) or source.anchor.rstrip("\\/").rstrip(":") or "drive"
-
+    drive_label = label or get_volume_label(source) or \
+        source.anchor.rstrip("\\/").rstrip(":") or "drive"
     with transaction(conn):
         drive_id = upsert_drive(
-            conn,
-            volume_serial=serial,
-            label=drive_label,
+            conn, volume_serial=serial, label=drive_label,
             source_root=str(source),
         )
 
-    log.info("scan: source=%s drive_id=%d serial=%s label=%s", source, drive_id, serial, drive_label)
+    if force:
+        resume = skip_indexed = False
+    done_dirs = scanned_relpaths(conn, drive_id=drive_id) if resume else set()
+    seen_rel = indexed_relpaths(conn, drive_id=drive_id) if skip_indexed else set()
 
+    ext_lower = tuple(e.lower() for e in extensions)
     inserted = 0
     seen = 0
     batch: list[dict] = []
+    # Per-dir tallies for post-order scanned_dirs rows: relpath -> [tot, media]
+    tally: dict[str, list[int]] = {}
+    state = {"examined": 0, "last_n": 0, "last_t": time.monotonic()}
+
+    def _rel(p: Path) -> str:
+        try:
+            r = str(p.relative_to(source)).replace("\\", "/")
+        except ValueError:
+            return str(p)
+        return "" if r in (".", "") else r
+
+    def _prune(dirpath: str, dirname: str) -> bool:
+        child_rel = _rel(Path(dirpath) / dirname)
+        if include is not None and not include(child_rel):
+            return True
+        return bool(resume and child_rel in done_dirs)
 
     def _flush() -> None:
         nonlocal inserted
@@ -240,33 +267,75 @@ def scan(
             inserted += insert_scanned_files(conn, batch)
         batch.clear()
 
-    for p in iter_candidate_files(source, extensions):
-        try:
-            st = p.stat()
-        except OSError as e:
-            log.warning("stat failed for %s: %s", p, e)
+    walked: list[str] = []
+    counts: dict[str, int] = {"inaccessible": 0}  # bound even if _walk yields nothing
+    for dirpath, filenames, walk_counts in _walk(source, prune=_prune):
+        counts = walk_counts
+        rel = _rel(Path(dirpath))
+        if resume and rel in done_dirs:
             continue
-        seen += 1
-        try:
-            relpath = str(p.relative_to(source))
-        except ValueError:
-            relpath = str(p)
-        batch.append({
-            "path": str(p),
-            "drive_id": drive_id,
-            "relpath": relpath,
-            "size": int(st.st_size),
-            "mtime": float(st.st_mtime),
-            "kind": classify_kind(p),
-        })
-        if len(batch) >= _BATCH_SIZE:
-            _flush()
+        walked.append(rel)
+        tally.setdefault(rel, [0, 0])
+        for name in filenames:
+            tally[rel][0] += 1
+            state["examined"] += 1
+            if not name.lower().endswith(ext_lower):
+                continue
+            tally[rel][1] += 1
+            p = Path(dirpath) / name
+            file_rel = _rel(p)
+            if skip_indexed and file_rel in seen_rel:
+                continue
+            try:
+                st = p.stat()
+            except OSError as e:
+                log.warning("stat failed for %s: %s", p, e)
+                continue
+            seen += 1
+            batch.append({
+                "path": str(p), "drive_id": drive_id, "relpath": file_rel,
+                "size": int(st.st_size), "mtime": float(st.st_mtime),
+                "kind": classify_kind(p),
+            })
+            if len(batch) >= _BATCH_SIZE:
+                _flush()
+        if _heartbeat_gate(state):
+            log.debug("scan: index dir=%s examined=%d", dirpath, state["examined"])
             if on_progress:
-                on_progress(seen, 0)
+                on_progress(state["examined"], 0)
 
     _flush()
     if on_progress:
-        on_progress(seen, 0)
+        on_progress(state["examined"], 0)
 
-    log.info("scan: seen=%d inserted=%d", seen, inserted)
-    return {"inserted": inserted, "seen": seen, "drive_id": drive_id}
+    # Post-order completion: a dir is complete only once all its
+    # descendants were walked. Mark deepest-first; every walked dir's
+    # subtree is fully covered because os.walk visited it all.
+    with transaction(conn):
+        for rel in sorted(walked, key=lambda r: r.count("/"), reverse=True):
+            sub_t = sum(t for r, (t, _m) in tally.items() if r == rel or r.startswith(rel + "/")) \
+                if rel else sum(t for _r, (t, _m) in tally.items())
+            sub_m = sum(m for r, (_t, m) in tally.items() if r == rel or r.startswith(rel + "/")) \
+                if rel else sum(m for _r, (_t, m) in tally.items())
+            mark_dir_scanned(
+                conn, drive_id=drive_id, relpath=rel,
+                file_count=sub_t, media_count=sub_m,
+            )
+
+    log.info("scan: seen=%d inserted=%d inaccessible=%d",
+             seen, inserted, counts["inaccessible"])
+    return {
+        "inserted": inserted, "seen": seen, "drive_id": drive_id,
+        "inaccessible_dirs": counts["inaccessible"],
+    }
+
+
+def scan(conn, source: Path, *, label: str | None = None,
+         extensions: tuple[str, ...] = DEFAULT_EXTENSIONS,
+         on_progress=None) -> dict[str, int]:
+    """Back-compat Stage 0 entry: index everything, no resume.
+
+    Preserved so existing callers/tests keep working.
+    """
+    return index(conn, source, label=label, extensions=extensions,
+                 on_progress=on_progress)

@@ -100,3 +100,47 @@ def test_discover_counts_and_heartbeats(tmp_path: Path, image_factory) -> None:
     assert beats, "heartbeat never fired"
     assert all(total == 0 for _, total in beats)        # unknown total
     assert any(done > 0 for done, _ in beats)
+
+
+def _src(tmp_path: Path, image_factory) -> Path:
+    (tmp_path / "src/keep").mkdir(parents=True)
+    (tmp_path / "src/skip").mkdir(parents=True)
+    image_factory("src/keep/k1.jpg", color=(1, 1, 1))
+    image_factory("src/skip/s1.jpg", color=(2, 2, 2))
+    return tmp_path / "src"
+
+
+def test_index_respects_include_predicate(tmp_db: Path, tmp_path: Path, image_factory) -> None:
+    src = _src(tmp_path, image_factory)
+    conn = connect(tmp_db)
+    res = scan_mod.index(
+        conn, src, include=lambda rel: not rel.startswith("skip"),
+    )
+    assert res["inserted"] == 1
+    rels = dbmod.indexed_relpaths(conn, drive_id=res["drive_id"])
+    assert rels == {"keep/k1.jpg"}
+
+
+def test_index_resume_skips_completed_dir(tmp_db: Path, tmp_path: Path, image_factory) -> None:
+    src = _src(tmp_path, image_factory)
+    conn = connect(tmp_db)
+    r1 = scan_mod.index(conn, src)            # full pass; marks dirs complete
+    assert r1["inserted"] == 2
+    image_factory("src/keep/k2.jpg", color=(9, 9, 9))   # added after completion
+    r2 = scan_mod.index(conn, src, resume=True)
+    assert r2["inserted"] == 0                # 'keep' complete -> not re-walked
+    r3 = scan_mod.index(conn, src, resume=True, force=True)
+    assert r3["inserted"] == 1                # force re-walks, picks up k2
+
+
+def test_index_incomplete_dir_skips_indexed_files(tmp_db: Path, tmp_path: Path, image_factory) -> None:
+    src = _src(tmp_path, image_factory)
+    conn = connect(tmp_db)
+    drive_id = scan_mod.index(conn, src)["drive_id"]
+    # Simulate interruption: drop the 'keep' completion row.
+    conn.execute("DELETE FROM scanned_dirs WHERE relpath = 'keep'")
+    conn.commit()
+    image_factory("src/keep/k2.jpg", color=(7, 7, 7))
+    res = scan_mod.index(conn, src, resume=True, skip_indexed=True)
+    assert res["inserted"] == 1              # only the new k2; k1 skipped
+    assert dbmod.is_dir_scanned(conn, drive_id=drive_id, relpath="keep")
