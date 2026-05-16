@@ -1292,7 +1292,9 @@ In `start_pipeline`, add a re-entrancy guard at the very top:
         if self._worker is not None and self._worker.isRunning():
             return
 ```
-and before constructing `PipelineWorker` (after source/output validation):
+The empty-selection guard must come **after source/output validation but
+BEFORE any button-state/label mutation** (so an early return never leaves
+the UI in a half-"starting…" state):
 ```python
         checked = self._checked_relpaths()
         if not checked:
@@ -1301,6 +1303,7 @@ and before constructing `PipelineWorker` (after source/output validation):
             return
         include = make_include(checked)
 ```
+Only after this do `self.index_btn.setEnabled(False)` / label "starting…" etc.
 (with `from dedupcollage.gui.selection import make_include` at module top).
 Pass to the constructor:
 `include=include, resume=self.cb_resume.isChecked(), skip_indexed=self.cb_skip_indexed.isChecked(), force=self.cb_force.isChecked(),`
