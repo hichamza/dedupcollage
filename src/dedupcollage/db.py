@@ -196,11 +196,17 @@ def upsert_drive(
     return drive_id
 
 
+# ---------- scan-discovery helpers ----------
+
 def mark_dir_scanned(
     conn: sqlite3.Connection, *, drive_id: int, relpath: str,
     file_count: int, media_count: int,
 ) -> None:
-    """Record a directory subtree as fully scanned (idempotent upsert)."""
+    """Record a directory subtree as fully scanned (idempotent upsert).
+
+    Follows db.py's explicit-transaction model: no internal commit; the
+    caller wraps this in ``transaction()`` (or relies on autocommit).
+    """
     conn.execute(
         "INSERT INTO scanned_dirs (drive_id, relpath, file_count, media_count, completed_at) "
         "VALUES (?, ?, ?, ?, ?) "
@@ -209,10 +215,10 @@ def mark_dir_scanned(
         "completed_at=excluded.completed_at",
         (drive_id, relpath, file_count, media_count, iso_now()),
     )
-    conn.commit()
 
 
 def is_dir_scanned(conn: sqlite3.Connection, *, drive_id: int, relpath: str) -> bool:
+    """True iff a completed scanned_dirs row exists for this (drive, relpath)."""
     row = conn.execute(
         "SELECT 1 FROM scanned_dirs WHERE drive_id = ? AND relpath = ?",
         (drive_id, relpath),
@@ -221,6 +227,7 @@ def is_dir_scanned(conn: sqlite3.Connection, *, drive_id: int, relpath: str) -> 
 
 
 def scanned_relpaths(conn: sqlite3.Connection, *, drive_id: int) -> set[str]:
+    """Relpaths of subtrees already marked complete for this drive."""
     return {
         r[0] for r in conn.execute(
             "SELECT relpath FROM scanned_dirs WHERE drive_id = ?", (drive_id,)
