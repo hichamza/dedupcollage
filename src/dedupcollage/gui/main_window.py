@@ -320,6 +320,8 @@ class MainWindow(QMainWindow):
 
     def _on_stage_progress(self, done: int, total: int) -> None:
         if total <= 0:
+            base = self.stage_label.text().split("…")[0] or "Working"
+            self.stage_label.setText(f"{base}… {done:,} files")
             return
         self.progress.setRange(0, total)
         self.progress.setValue(done)
