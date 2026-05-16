@@ -45,13 +45,16 @@ from dedupcollage.db import connect
 
 def test_scanned_dirs_helpers(tmp_db: Path) -> None:
     conn = connect(tmp_db)
-    assert dbmod.is_dir_scanned(conn, drive_id=1, relpath="a/b") is False
-    dbmod.mark_dir_scanned(conn, drive_id=1, relpath="a/b", file_count=10, media_count=3)
-    assert dbmod.is_dir_scanned(conn, drive_id=1, relpath="a/b") is True
+    with dbmod.transaction(conn):
+        d1 = dbmod.upsert_drive(conn, volume_serial="VS-A", label="a", source_root="C:\\a")
+        d2 = dbmod.upsert_drive(conn, volume_serial="VS-B", label="b", source_root="C:\\b")
+    assert dbmod.is_dir_scanned(conn, drive_id=d1, relpath="a/b") is False
+    dbmod.mark_dir_scanned(conn, drive_id=d1, relpath="a/b", file_count=10, media_count=3)
+    assert dbmod.is_dir_scanned(conn, drive_id=d1, relpath="a/b") is True
     # Idempotent upsert (no IntegrityError, counts updated).
-    dbmod.mark_dir_scanned(conn, drive_id=1, relpath="a/b", file_count=12, media_count=4)
-    assert dbmod.scanned_relpaths(conn, drive_id=1) == {"a/b"}
-    assert dbmod.scanned_relpaths(conn, drive_id=2) == set()
+    dbmod.mark_dir_scanned(conn, drive_id=d1, relpath="a/b", file_count=12, media_count=4)
+    assert dbmod.scanned_relpaths(conn, drive_id=d1) == {"a/b"}
+    assert dbmod.scanned_relpaths(conn, drive_id=d2) == set()
 
 
 def test_indexed_relpaths(tmp_db: Path) -> None:
