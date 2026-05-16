@@ -4,6 +4,23 @@ All notable changes to DedupCollage are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [0.2.0-alpha.2] — 2026-05-16
+
+### Added
+- Scan discovery phase: a count-only walk builds a live directory tree
+  with per-folder media counts; low-media-ratio folders are flagged.
+- GUI two-step scan: discover → pick folders → index. Control
+  checkboxes: skip noise dirs, resume, skip already-indexed, force.
+- Resume/incremental scan via drive-stable `scanned_dirs`; completed
+  subtrees are skipped on repeat/interrupted scans.
+- CLI `scan` flags: `--resume/--no-resume`, `--skip-indexed/...`,
+  `--min-media-ratio`, `--exclude`, `--force-rescan`, `--list-only`.
+
+### Fixed
+- Scan no longer appears frozen: a throttled heartbeat reports a
+  running file count to the GUI and DEBUG log even on media-sparse
+  trees.
+
 ## [0.1.0-alpha.2] — 2026-05-16
 
 ### Fixed
