@@ -38,7 +38,8 @@ from PySide6.QtWidgets import (
 from dedupcollage import __app_name__, __version__
 from dedupcollage._paths import default_db_path
 from dedupcollage.db import connect
-from dedupcollage.gui.worker import PipelineWorker
+from dedupcollage.gui.selection import make_include
+from dedupcollage.gui.worker import DiscoveryWorker, PipelineWorker
 from dedupcollage.utils import format_bytes
 
 log = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ class MainWindow(QMainWindow):
         self.resize(1180, 720)
 
         self._worker: PipelineWorker | None = None
+        self._disc: DiscoveryWorker | None = None
         self._db_path: Path = default_db_path()
 
         self._build_ui()
@@ -193,7 +195,8 @@ class MainWindow(QMainWindow):
     # ---------- pipeline lifecycle ----------
 
     def start_discovery(self) -> None:
-        from dedupcollage.gui.worker import DiscoveryWorker
+        if self._disc is not None and self._disc.isRunning():
+            return
         source = self.source_edit.text().strip()
         if not source:
             self.statusBar().showMessage("Pick a source folder first", 5000)
@@ -212,7 +215,6 @@ class MainWindow(QMainWindow):
     def _on_discovered(self, root) -> None:
         from dedupcollage import scan as scan_mod
         from dedupcollage.gui.selection import default_checked
-        self._disc_root = root
         checked = default_checked(root, skip_noise=self.cb_skip_noise.isChecked())
 
         def add(node, parent_item):
@@ -222,12 +224,17 @@ class MainWindow(QMainWindow):
             it = QTreeWidgetItem(parent_item, [
                 text, f"{node.media_files}/{node.total_files}"])
             it.setData(0, Qt.ItemDataRole.UserRole, node.relpath)
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            it.setCheckState(
-                0,
-                Qt.CheckState.Checked if node.relpath in checked
-                else Qt.CheckState.Unchecked,
-            )
+            if node.relpath == "":
+                # The source root is always scanned (index() never gates the
+                # root via include); a root checkbox would silently do nothing.
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            else:
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setCheckState(
+                    0,
+                    Qt.CheckState.Checked if node.relpath in checked
+                    else Qt.CheckState.Unchecked,
+                )
             for c in sorted(node.children.values(), key=lambda n: n.name):
                 add(c, it)
             return it
@@ -255,7 +262,18 @@ class MainWindow(QMainWindow):
             walk(self.tree.topLevelItem(i))
         return out
 
+    def closeEvent(self, event) -> None:  # noqa: N802  (Qt override)
+        for w in (self._worker, self._disc):
+            if w is not None and w.isRunning():
+                if hasattr(w, "request_stop"):
+                    w.request_stop()
+                w.quit()
+                w.wait(3000)
+        event.accept()
+
     def start_pipeline(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
         source = self.source_edit.text().strip()
         output = self.output_edit.text().strip()
         if not source or not output:
@@ -266,8 +284,12 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(True)
         self.stage_label.setText("starting…")
 
-        from dedupcollage.gui.selection import make_include
-        include = make_include(self._checked_relpaths())
+        checked = self._checked_relpaths()
+        if not checked:
+            self.statusBar().showMessage(
+                "Run discovery and select folders first.", 5000)
+            return
+        include = make_include(checked)
         self._worker = PipelineWorker(
             db_path=self._db_path,
             source=Path(source),
