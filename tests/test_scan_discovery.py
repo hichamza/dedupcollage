@@ -249,3 +249,20 @@ def test_pipeline_worker_scan_param_defaults() -> None:
     assert params["resume"].default is False
     assert params["skip_indexed"].default is False
     assert params["force"].default is False
+
+
+def test_heartbeat_fires_on_media_sparse_tree(tmp_db: Path, tmp_path: Path) -> None:
+    """Regression for the 'no activity' defect: index() emits progress
+    with examined>0 even when there are zero media files."""
+    src = tmp_path / "src"
+    (src / "devjunk").mkdir(parents=True)
+    for i in range(50):
+        (src / "devjunk" / f"f{i}.txt").write_text("x")
+
+    calls: list[tuple[int, int]] = []
+    conn = connect(tmp_db)
+    scan_mod.index(conn, src, on_progress=lambda d, t: calls.append((d, t)))
+
+    assert calls, "on_progress never fired"
+    assert all(t == 0 for _, t in calls)
+    assert any(d > 0 for d, _ in calls)     # examined climbs with zero media
