@@ -1240,8 +1240,9 @@ Add methods to `MainWindow`:
                 add(c, it)
             return it
 
+        # QTreeWidgetItem(self.tree, ...) already inserts as a top-level
+        # item; do NOT also call addTopLevelItem (double-add).
         top = add(root, self.tree)
-        self.tree.addTopLevelItem(top)
         top.setExpanded(True)
         self.stage_label.setText("Select folders, then Start indexing")
         self.progress.setRange(0, 100)
