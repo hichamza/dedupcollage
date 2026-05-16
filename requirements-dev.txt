@@ -1,8 +1,8 @@
 -r requirements.txt
 
 # Test
-pytest>=8.0.0,<9
-pytest-cov>=4.1.0,<6
+pytest>=9.0.3,<10
+pytest-cov>=6.0.0,<8
 
 # Lint & format
 ruff>=0.4.0,<1
