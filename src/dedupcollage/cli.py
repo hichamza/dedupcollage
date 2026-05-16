@@ -136,6 +136,9 @@ def scan(ctx, source: str, label: str | None, resume: bool, skip_indexed: bool,
 
     ex = {e.replace("\\", "/").strip("/") for e in excludes}
 
+    # NOTE: prefix-based subtree exclusion (CLI semantics). The GUI
+    # path uses exact membership (gui/selection.make_include); the two
+    # are intentionally different — see that function's note.
     def _include(rel: str) -> bool:
         return not any(rel == e or rel.startswith(e + "/") for e in ex)
 

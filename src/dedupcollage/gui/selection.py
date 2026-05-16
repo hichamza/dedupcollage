@@ -34,6 +34,10 @@ def make_include(checked: set[str]):
     """
     norm = {c.strip("/") for c in checked}
 
+    # NOTE: intentionally EXACT membership (not prefix). The CLI uses a
+    # prefix predicate (cli.py scan --exclude); do not unify — the GUI
+    # enumerates every dir, so prefix matching would re-include unchecked
+    # children of a checked parent.
     def include(relpath: str) -> bool:
         return relpath.strip("/") in norm
 
