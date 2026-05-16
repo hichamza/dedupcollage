@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -23,6 +24,28 @@ from dedupcollage.db import connect
 from dedupcollage.governor import PRESETS, Governor
 
 log = logging.getLogger(__name__)
+
+
+class DiscoveryWorker(QThread):
+    """Runs scan.discover() off the UI thread, emits the tree when done."""
+
+    progress = Signal(int, int)          # examined, 0
+    finished_tree = Signal(object)       # DirNode root
+    failed = Signal(str)
+
+    def __init__(self, source: Path) -> None:
+        super().__init__()
+        self._source = source
+
+    def run(self) -> None:
+        try:
+            root = scan_mod.discover(
+                self._source, on_progress=lambda d, t: self.progress.emit(d, t)
+            )
+            self.finished_tree.emit(root)
+        except Exception as e:  # noqa: BLE001
+            log.error("discovery failed: %s\n%s", e, traceback.format_exc())
+            self.failed.emit(f"{type(e).__name__}: {e}")
 
 
 class PipelineWorker(QThread):
@@ -44,6 +67,10 @@ class PipelineWorker(QThread):
         throttle: str = "balanced",
         hamming: int = 8,
         label: str | None = None,
+        include: Callable[[str], bool] | None = None,
+        resume: bool = False,
+        skip_indexed: bool = False,
+        force: bool = False,
     ) -> None:
         super().__init__()
         self._db_path = db_path
@@ -52,6 +79,10 @@ class PipelineWorker(QThread):
         self._throttle = throttle
         self._hamming = hamming
         self._label = label
+        self._include = include
+        self._resume = resume
+        self._skip_indexed = skip_indexed
+        self._force = force
         self._stop_requested = False
 
     def request_stop(self) -> None:
@@ -69,8 +100,11 @@ class PipelineWorker(QThread):
                 self.resource_sample.emit(gov.snapshot())
 
             stages = [
-                ("scan", lambda: scan_mod.scan(
-                    conn, self._source, label=self._label, on_progress=progress
+                ("scan", lambda: scan_mod.index(
+                    conn, self._source, label=self._label,
+                    include=self._include, resume=self._resume,
+                    skip_indexed=self._skip_indexed, force=self._force,
+                    on_progress=progress,
                 )),
                 ("quickhash", lambda: fp.run_quickhash_stage(
                     conn, governor=gov, on_progress=progress
