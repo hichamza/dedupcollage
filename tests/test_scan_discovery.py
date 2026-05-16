@@ -200,5 +200,5 @@ def test_cli_scan_list_only(tmp_db: Path, tmp_path: Path, image_factory) -> None
     )
     assert r.exit_code == 0, r.output
     assert "photos" in r.output
-    # --list-only must not write file rows.
-    assert dbmod.indexed_relpaths(connect(tmp_db), drive_id=1) == set()
+    # --list-only must not write ANY file rows (drive-agnostic check).
+    assert connect(tmp_db).execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
