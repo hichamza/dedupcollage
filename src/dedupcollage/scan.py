@@ -15,10 +15,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from dedupcollage.db import insert_scanned_files, transaction, upsert_drive
+from dedupcollage.discovery import DirNode, build_tree
 from dedupcollage.utils import DEFAULT_EXTENSIONS, classify_kind
 
 log = logging.getLogger(__name__)
@@ -143,6 +145,52 @@ def iter_candidate_files(
         for name in filenames:
             if name.lower().endswith(ext_lower):
                 yield Path(dirpath) / name
+
+
+def _heartbeat_gate(state: dict) -> bool:
+    now = time.monotonic()
+    if state["examined"] - state["last_n"] >= _HEARTBEAT_EVERY or \
+       now - state["last_t"] >= _HEARTBEAT_SECS:
+        state["last_n"] = state["examined"]
+        state["last_t"] = now
+        return True
+    return False
+
+
+def discover(
+    root: Path,
+    *,
+    extensions: tuple[str, ...] = DEFAULT_EXTENSIONS,
+    on_progress=None,
+) -> DirNode:
+    """Count-only walk: build the directory tree with media counts.
+
+    No ``stat``/hashing. Emits ``on_progress(examined, 0)`` and
+    ``log.debug`` on a throttled heartbeat (total unknown -> 0).
+    """
+    root = Path(root).resolve()
+    ext_lower = tuple(e.lower() for e in extensions)
+    rows: list[tuple[str, int, int]] = []
+    state = {"examined": 0, "last_n": 0, "last_t": time.monotonic()}
+
+    for dirpath, filenames, _counts in _walk(root):
+        try:
+            rel = str(Path(dirpath).relative_to(root)).replace("\\", "/")
+        except ValueError:
+            rel = ""
+        rel = "" if rel == "." else rel
+        own_total = len(filenames)
+        own_media = sum(1 for n in filenames if n.lower().endswith(ext_lower))
+        rows.append((rel, own_total, own_media))
+        state["examined"] += own_total
+        if _heartbeat_gate(state):
+            log.debug("scan: discover dir=%s examined=%d", dirpath, state["examined"])
+            if on_progress:
+                on_progress(state["examined"], 0)
+
+    if on_progress:
+        on_progress(state["examined"], 0)
+    return build_tree(rows)
 
 
 def scan(

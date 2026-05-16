@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from dedupcollage import db as dbmod
+from dedupcollage import scan as scan_mod
 from dedupcollage.db import connect
 from dedupcollage.discovery import build_tree
 
@@ -76,3 +77,26 @@ def test_flag_thresholds_are_exact() -> None:
     assert build_tree([("d", 100, 1)]).child("d").flagged is False
     # 100 files, 0 media -> flagged.
     assert build_tree([("d", 100, 0)]).child("d").flagged is True
+
+
+def test_discover_counts_and_heartbeats(tmp_path: Path, image_factory) -> None:
+    (tmp_path / "src/photos").mkdir(parents=True)
+    (tmp_path / "src/junk/deep").mkdir(parents=True)
+    image_factory("src/photos/a.jpg", color=(1, 2, 3))
+    image_factory("src/photos/b.jpg", color=(4, 5, 6))
+    for i in range(30):
+        (tmp_path / f"src/junk/deep/f{i}.txt").write_text("x")
+
+    beats: list[tuple[int, int]] = []
+    root = scan_mod.discover(
+        tmp_path / "src", on_progress=lambda done, total: beats.append((done, total))
+    )
+
+    assert root.media_files == 2
+    assert root.total_files == 32
+    assert root.child("photos").media_files == 2
+    assert root.child("junk").flagged is True          # 30 files, 0 media
+    assert root.child("photos").flagged is False
+    assert beats, "heartbeat never fired"
+    assert all(total == 0 for _, total in beats)        # unknown total
+    assert any(done > 0 for done, _ in beats)
