@@ -1092,12 +1092,16 @@ class DiscoveryWorker(QThread):
 
 - [ ] **Step 2: Make `PipelineWorker` accept selection/control flags**
 
-In `PipelineWorker.__init__` (lines 38-55) add params with defaults and store them:
+In `PipelineWorker.__init__` (lines 38-55) add params with defaults and store
+them. **Defaults are `False`** so the (not-yet-wired) GUI Start button keeps
+its pre-feature full-reindex behavior; Task 9 passes the checkbox values
+explicitly. Add `from collections.abc import Callable` to worker.py imports
+(I001 order) and annotate `include`:
 
 ```python
-        include=None,
-        resume: bool = True,
-        skip_indexed: bool = True,
+        include: Callable[[str], bool] | None = None,
+        resume: bool = False,
+        skip_indexed: bool = False,
         force: bool = False,
 ```
 Store: `self._include = include`, `self._resume = resume`, `self._skip_indexed = skip_indexed`, `self._force = force`.
@@ -1115,15 +1119,31 @@ In `PipelineWorker.run`, replace the `("scan", lambda: scan_mod.scan(...))` tupl
                 )),
 ```
 
-- [ ] **Step 4: Run full suite (no GUI regressions in importable code)**
+- [ ] **Step 4: Add a defaults-pinning test** (GUI-free, signature introspection only — no QApplication)
+
+Append to `tests/test_scan_discovery.py`:
+
+```python
+def test_pipeline_worker_scan_param_defaults() -> None:
+    import inspect
+
+    from dedupcollage.gui.worker import PipelineWorker
+    params = inspect.signature(PipelineWorker.__init__).parameters
+    assert params["include"].default is None
+    assert params["resume"].default is False
+    assert params["skip_indexed"].default is False
+    assert params["force"].default is False
+```
+
+- [ ] **Step 5: Run full suite (no GUI regressions in importable code)**
 
 Run: `.venv/Scripts/python.exe -m pytest tests/ -q`
-Expected: PASS (all). Run `.venv/Scripts/python.exe -c "import dedupcollage.gui.worker"` — exit 0.
+Expected: PASS (all, incl. the new test). Run `.venv/Scripts/python.exe -c "import dedupcollage.gui.worker"` — exit 0. Run `.venv/Scripts/python.exe -m ruff check src tests` — clean.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/dedupcollage/gui/worker.py
+git add src/dedupcollage/gui/worker.py tests/test_scan_discovery.py
 git commit -m "feat(gui): DiscoveryWorker + PipelineWorker selection params"
 ```
 
