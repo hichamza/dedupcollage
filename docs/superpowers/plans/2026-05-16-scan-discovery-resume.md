@@ -1201,9 +1201,15 @@ Replace the `start_btn`/`stop_btn` wiring (lines 108-111) with:
 
 Add methods to `MainWindow`:
 
+Use module-level scoped-enum imports: `from PySide6.QtCore import Qt` and
+`from dedupcollage.gui.worker import DiscoveryWorker, PipelineWorker` at the
+top of the file (not local). Declare `self._disc: DiscoveryWorker | None = None`
+in `__init__` next to `self._worker`.
+
 ```python
     def start_discovery(self) -> None:
-        from dedupcollage.gui.worker import DiscoveryWorker
+        if self._disc is not None and self._disc.isRunning():
+            return
         source = self.source_edit.text().strip()
         if not source:
             self.statusBar().showMessage("Pick a source folder first", 5000)
@@ -1220,22 +1226,28 @@ Add methods to `MainWindow`:
         self._disc.start()
 
     def _on_discovered(self, root) -> None:
-        from dedupcollage.gui.selection import default_checked
         from dedupcollage import scan as scan_mod
-        self._disc_root = root
+        from dedupcollage.gui.selection import default_checked
         checked = default_checked(root, skip_noise=self.cb_skip_noise.isChecked())
 
         def add(node, parent_item):
-            from PySide6.QtCore import Qt
             label = node.name or self.source_edit.text().strip()
             hint = scan_mod.name_hint(node.name) if node.name else None
             text = label + (f"  ({hint})" if hint else "")
-            it = self._QTreeWidgetItem(parent_item, [
+            it = QTreeWidgetItem(parent_item, [
                 text, f"{node.media_files}/{node.total_files}"])
-            it.setData(0, Qt.UserRole, node.relpath)
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(
-                0, Qt.Checked if node.relpath in checked else Qt.Unchecked)
+            it.setData(0, Qt.ItemDataRole.UserRole, node.relpath)
+            if node.relpath == "":
+                # The source root is always scanned (index() never gates the
+                # root via include); a root checkbox would silently do nothing.
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            else:
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setCheckState(
+                    0,
+                    Qt.CheckState.Checked if node.relpath in checked
+                    else Qt.CheckState.Unchecked,
+                )
             for c in sorted(node.children.values(), key=lambda n: n.name):
                 add(c, it)
             return it
@@ -1251,29 +1263,46 @@ Add methods to `MainWindow`:
         self.discover_btn.setEnabled(True)
 
     def _checked_relpaths(self) -> set[str]:
-        from PySide6.QtCore import Qt
         out: set[str] = set()
 
         def walk(item):
-            if item.checkState(0) == Qt.Checked:
-                out.add(item.data(0, Qt.UserRole))
+            if item.checkState(0) == Qt.CheckState.Checked:
+                out.add(item.data(0, Qt.ItemDataRole.UserRole))
             for i in range(item.childCount()):
                 walk(item.child(i))
 
         for i in range(self.tree.topLevelItemCount()):
             walk(self.tree.topLevelItem(i))
         return out
+
+    def closeEvent(self, event) -> None:
+        for w in (self._worker, self._disc):
+            if w is not None and w.isRunning():
+                if hasattr(w, "request_stop"):
+                    w.request_stop()
+                w.quit()
+                w.wait(3000)
+        event.accept()
 ```
 
 - [ ] **Step 4: Wire selection into `start_pipeline`**
 
-In `start_pipeline` (lines ~169-190), before constructing `PipelineWorker`, add:
-
+In `start_pipeline`, add a re-entrancy guard at the very top:
 ```python
-        from dedupcollage.gui.selection import make_include
-        include = make_include(self._checked_relpaths())
+        if self._worker is not None and self._worker.isRunning():
+            return
 ```
-and pass to the constructor:
+and before constructing `PipelineWorker` (after source/output validation):
+```python
+        checked = self._checked_relpaths()
+        if not checked:
+            self.statusBar().showMessage(
+                "Run discovery and select folders first.", 5000)
+            return
+        include = make_include(checked)
+```
+(with `from dedupcollage.gui.selection import make_include` at module top).
+Pass to the constructor:
 `include=include, resume=self.cb_resume.isChecked(), skip_indexed=self.cb_skip_indexed.isChecked(), force=self.cb_force.isChecked(),`
 
 - [ ] **Step 5: Manual verification**
