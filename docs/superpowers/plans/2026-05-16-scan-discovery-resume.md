@@ -1204,23 +1204,23 @@ git commit -m "test: heartbeat regression on media-sparse tree"
 
 ---
 
-## Task 12: Ship v0.1.0-alpha.3
+## Task 12: Ship v0.2.0-alpha.2
 
 **Files:**
 - Modify: `pyproject.toml:7`, `src/dedupcollage/__init__.py:8`, `packaging/installer.iss:7`, `CHANGELOG.md`
 
 - [ ] **Step 1: Bump versions**
 
-- `pyproject.toml` line 7: `version = "0.1.0a3"`
-- `src/dedupcollage/__init__.py` line 8: `__version__ = "0.1.0a3"`
-- `packaging/installer.iss` line 7: `#define MyAppVersion "0.1.0-alpha.3"`
+- `pyproject.toml` line 7: `version = "0.2.0a2"`
+- `src/dedupcollage/__init__.py` line 8: `__version__ = "0.2.0a2"`
+- `packaging/installer.iss` line 7: `#define MyAppVersion "0.2.0-alpha.2"`
 
 - [ ] **Step 2: Add CHANGELOG entry**
 
 In `CHANGELOG.md`, under `## [Unreleased]`, add:
 
 ```markdown
-## [0.1.0-alpha.3] — 2026-05-16
+## [0.2.0-alpha.2] — 2026-05-16
 
 ### Added
 - Scan discovery phase: a count-only walk builds a live directory tree
@@ -1247,19 +1247,19 @@ uv pip install --python .venv/Scripts/python.exe -e . -q
 .venv/Scripts/python.exe -m pytest tests/ -q
 .venv/Scripts/python.exe -m ruff check src tests
 ```
-Expected: `0.1.0a3`; all tests pass; ruff clean.
+Expected: `0.2.0a2`; all tests pass; ruff clean.
 
 - [ ] **Step 4: Commit, push, tag, watch CI**
 
 ```bash
 git add -A
-git commit -m "Release v0.1.0-alpha.3: scan discovery, noise selection, resume"
+git commit -m "Release v0.2.0-alpha.2: scan discovery, noise selection, resume"
 git push origin main
-git tag -a v0.1.0-alpha.3 -m "DedupCollage v0.1.0-alpha.3"
-git push origin v0.1.0-alpha.3
+git tag -a v0.2.0-alpha.2 -m "DedupCollage v0.2.0-alpha.2"
+git push origin v0.2.0-alpha.2
 ```
 Then watch: `gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status --interval 30`
-Expected: workflow conclusion `success`; `gh release view v0.1.0-alpha.3` shows a prerelease with `dedupcollage-setup-0.1.0-alpha.3.exe`.
+Expected: workflow conclusion `success`; `gh release view v0.2.0-alpha.2` shows a prerelease with `dedupcollage-setup-0.2.0-alpha.2.exe`.
 
 - [ ] **Step 5: Verify CI green on main too**
 
