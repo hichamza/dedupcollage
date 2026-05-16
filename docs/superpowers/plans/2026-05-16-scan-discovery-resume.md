@@ -974,6 +974,26 @@ def test_make_include_predicate() -> None:
     assert inc("photos") is True
     assert inc("photos/2024") is True       # descendant of checked
     assert inc("junk") is False
+
+
+def test_make_include_root_semantics() -> None:
+    inc_root = make_include({""})
+    assert inc_root("") is True
+    assert inc_root("anything/deep") is True
+    inc_sub = make_include({"photos"})
+    assert inc_sub("") is False             # root not checked
+    assert inc_sub("docs") is False
+    # Parent checked, child not enumerated -> still included (subtree
+    # expansion; the GUI must omit a partially-selected parent).
+    assert inc_sub("photos/raw") is True
+
+
+def test_default_checked_nested_recursion() -> None:
+    root = build_tree([("", 0, 0), ("a", 0, 0), ("a/b", 30, 0), ("a/keepme", 5, 5)])
+    checked = default_checked(root, skip_noise=True)
+    assert "" in checked and "a" in checked
+    assert "a/keepme" in checked            # unflagged child kept
+    assert "a/b" not in checked             # flagged (30 files, 0 media)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1009,14 +1029,22 @@ def default_checked(root: DirNode, *, skip_noise: bool) -> set[str]:
 
 
 def make_include(checked: set[str]):
-    """include(relpath) -> True if relpath is checked or under a checked dir."""
+    """Build the scan ``include(relpath)`` predicate from a checked set.
+
+    ``checked`` MUST be the set of *fully-selected subtree roots*: a dir
+    appears only if it AND all its descendants are selected. A partially
+    selected dir must be omitted and its still-checked children listed
+    individually (the GUI tree -> set construction is responsible for
+    this invariant). Given it, ``include(r)`` is True iff ``r`` is a
+    checked root or lies under one.
+    """
     norm = {c.strip("/") for c in checked}
 
     def include(relpath: str) -> bool:
         r = relpath.strip("/")
-        if r in norm or "" in norm and r == "":
+        if r in norm:
             return True
-        return any(r == c or r.startswith(c + "/") for c in norm if c != "")
+        return any(r == c or r.startswith(c + "/") for c in norm if c)
 
     return include
 ```
