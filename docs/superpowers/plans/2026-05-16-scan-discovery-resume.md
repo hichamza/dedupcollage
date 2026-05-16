@@ -564,6 +564,50 @@ def test_index_incomplete_dir_skips_indexed_files(tmp_db: Path, tmp_path: Path, 
     res = scan_mod.index(conn, src, resume=True, skip_indexed=True)
     assert res["inserted"] == 1              # only the new k2; k1 skipped
     assert dbmod.is_dir_scanned(conn, drive_id=drive_id, relpath="keep")
+
+
+def test_index_include_prune_keeps_subtree_resumable(
+    tmp_db: Path, tmp_path: Path, image_factory
+) -> None:
+    (tmp_path / "src/a/b/c").mkdir(parents=True)
+    image_factory("src/a/b/c/deep.jpg", color=(3, 3, 3))
+    image_factory("src/a/top.jpg", color=(4, 4, 4))
+    src = tmp_path / "src"
+    conn = connect(tmp_db)
+    r1 = scan_mod.index(conn, src, include=lambda rel: rel != "a/b/c")
+    drive_id = r1["drive_id"]
+    sc = dbmod.scanned_relpaths(conn, drive_id=drive_id)
+    assert "a/b/c" not in sc          # excluded dir not complete
+    assert "a/b" not in sc            # ancestor of include-pruned not complete
+    assert "" not in sc               # root has a pruned descendant
+    assert dbmod.indexed_relpaths(conn, drive_id=drive_id) == {"a/top.jpg"}
+    # Resume without filter must now pick up the previously-excluded file.
+    r2 = scan_mod.index(conn, src, resume=True)
+    assert r2["inserted"] == 1
+    assert "a/b/c/deep.jpg" in dbmod.indexed_relpaths(conn, drive_id=drive_id)
+
+
+def test_index_post_order_prefix_collision(
+    tmp_db: Path, tmp_path: Path, image_factory
+) -> None:
+    (tmp_path / "src/keep").mkdir(parents=True)
+    (tmp_path / "src/keeper").mkdir(parents=True)
+    image_factory("src/keep/a.jpg", color=(1, 1, 1))
+    image_factory("src/keeper/b.jpg", color=(2, 2, 2))
+    image_factory("src/keeper/c.jpg", color=(3, 3, 3))
+    src = tmp_path / "src"
+    conn = connect(tmp_db)
+    drive_id = scan_mod.index(conn, src)["drive_id"]
+    keep_row = conn.execute(
+        "SELECT file_count, media_count FROM scanned_dirs "
+        "WHERE drive_id=? AND relpath='keep'", (drive_id,)
+    ).fetchone()
+    keeper_row = conn.execute(
+        "SELECT file_count, media_count FROM scanned_dirs "
+        "WHERE drive_id=? AND relpath='keeper'", (drive_id,)
+    ).fetchone()
+    assert tuple(keep_row) == (1, 1)      # 'keep' must NOT absorb 'keeper'
+    assert tuple(keeper_row) == (2, 2)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -576,6 +620,59 @@ Expected: FAIL — `AttributeError: ... has no attribute 'index'`.
 Replace the entire `def scan(...)` (lines 111-185) in `src/dedupcollage/scan.py` with:
 
 ```python
+def _mark_completed(
+    conn, drive_id: int, walked: list[str],
+    tally: dict[str, list[int]], include_pruned: set[str],
+) -> None:
+    """Write ``scanned_dirs`` rows post-order, O(number of dirs).
+
+    A directory is marked complete only if **no** ``include``-pruned
+    directory lies within its subtree — such a subtree is intentionally
+    left without a completion row so a later resume still re-walks it.
+    Resume-pruned children do NOT block completion: they already carry
+    their own completion rows from a prior run. Subtree counts are
+    aggregated single-pass from each dir's immediate children
+    (deepest-first; root processed last), avoiding the O(D^2) scan.
+    """
+    def _depth(r: str) -> int:
+        return 0 if r == "" else r.count("/") + 1
+
+    order = sorted(set(walked), key=_depth, reverse=True)
+    children: dict[str, list[str]] = {}
+    for rel in set(walked):
+        if rel == "":
+            continue
+        parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        children.setdefault(parent, []).append(rel)
+
+    subtree: dict[str, list[int]] = {}
+    for rel in order:
+        own = tally.get(rel, [0, 0])
+        t, m = own[0], own[1]
+        for c in children.get(rel, ()):
+            ct, cm = subtree.get(c, [0, 0])
+            t += ct
+            m += cm
+        subtree[rel] = [t, m]
+
+    def _blocked(rel: str) -> bool:
+        if not include_pruned:
+            return False
+        if rel == "":
+            return True
+        return any(pr == rel or pr.startswith(rel + "/") for pr in include_pruned)
+
+    with transaction(conn):
+        for rel in order:
+            if _blocked(rel):
+                continue
+            t, m = subtree.get(rel, [0, 0])
+            mark_dir_scanned(
+                conn, drive_id=drive_id, relpath=rel,
+                file_count=t, media_count=m,
+            )
+
+
 def index(
     conn,
     source: Path,
@@ -593,8 +690,9 @@ def index(
     ``include(relpath) -> bool``: walk a directory only if True (default
     all). ``resume``: skip dirs with a scanned_dirs row. ``skip_indexed``:
     within walked dirs, skip files already indexed for this drive.
-    ``force``: ignore resume + skip_indexed. Marks each directory's
-    subtree complete in post-order. Heartbeat via ``on_progress``.
+    ``force``: ignore resume + skip_indexed. Directories are marked
+    complete post-order, EXCEPT any whose subtree had an ``include``-
+    pruned directory (left resumable). Heartbeat via ``on_progress``.
     """
     source = Path(source).resolve()
     if not source.is_dir():
@@ -622,16 +720,19 @@ def index(
     tally: dict[str, list[int]] = {}
     state = {"examined": 0, "last_n": 0, "last_t": time.monotonic()}
 
+    include_pruned: set[str] = set()
+
     def _rel(p: Path) -> str:
         try:
             r = str(p.relative_to(source)).replace("\\", "/")
         except ValueError:
-            return str(p)
+            return ""  # symlink/junction escaping source -> attribute to root
         return "" if r in (".", "") else r
 
     def _prune(dirpath: str, dirname: str) -> bool:
         child_rel = _rel(Path(dirpath) / dirname)
         if include is not None and not include(child_rel):
+            include_pruned.add(child_rel)
             return True
         return bool(resume and child_rel in done_dirs)
 
@@ -683,19 +784,7 @@ def index(
     if on_progress:
         on_progress(state["examined"], 0)
 
-    # Post-order completion: a dir is complete only once all its
-    # descendants were walked. Mark deepest-first; every walked dir's
-    # subtree is fully covered because os.walk visited it all.
-    with transaction(conn):
-        for rel in sorted(walked, key=lambda r: r.count("/"), reverse=True):
-            sub_t = sum(t for r, (t, _m) in tally.items() if r == rel or r.startswith(rel + "/")) \
-                if rel else sum(t for _r, (t, _m) in tally.items())
-            sub_m = sum(m for r, (_t, m) in tally.items() if r == rel or r.startswith(rel + "/")) \
-                if rel else sum(m for _r, (_t, m) in tally.items())
-            mark_dir_scanned(
-                conn, drive_id=drive_id, relpath=rel,
-                file_count=sub_t, media_count=sub_m,
-            )
+    _mark_completed(conn, drive_id, walked, tally, include_pruned)
 
     log.info("scan: seen=%d inserted=%d inaccessible=%d",
              seen, inserted, counts["inaccessible"])
