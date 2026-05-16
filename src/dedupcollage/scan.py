@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import time  # noqa: F401  # used by heartbeat logic in later scan tasks
 from collections.abc import Iterator
 from pathlib import Path
 
