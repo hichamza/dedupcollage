@@ -49,12 +49,23 @@ def test_scanned_dirs_helpers(tmp_db: Path) -> None:
         d1 = dbmod.upsert_drive(conn, volume_serial="VS-A", label="a", source_root="C:\\a")
         d2 = dbmod.upsert_drive(conn, volume_serial="VS-B", label="b", source_root="C:\\b")
     assert dbmod.is_dir_scanned(conn, drive_id=d1, relpath="a/b") is False
-    dbmod.mark_dir_scanned(conn, drive_id=d1, relpath="a/b", file_count=10, media_count=3)
+    with dbmod.transaction(conn):
+        dbmod.mark_dir_scanned(conn, drive_id=d1, relpath="a/b", file_count=10, media_count=3)
     assert dbmod.is_dir_scanned(conn, drive_id=d1, relpath="a/b") is True
     # Idempotent upsert (no IntegrityError, counts updated).
-    dbmod.mark_dir_scanned(conn, drive_id=d1, relpath="a/b", file_count=12, media_count=4)
+    with dbmod.transaction(conn):
+        dbmod.mark_dir_scanned(conn, drive_id=d1, relpath="a/b", file_count=12, media_count=4)
     assert dbmod.scanned_relpaths(conn, drive_id=d1) == {"a/b"}
     assert dbmod.scanned_relpaths(conn, drive_id=d2) == set()
+
+
+def test_scanned_dirs_fk_rejects_unknown_drive(tmp_db: Path) -> None:
+    import sqlite3
+
+    import pytest
+    conn = connect(tmp_db)
+    with pytest.raises(sqlite3.IntegrityError), dbmod.transaction(conn):
+        dbmod.mark_dir_scanned(conn, drive_id=999, relpath="x", file_count=1, media_count=0)
 
 
 def test_indexed_relpaths(tmp_db: Path) -> None:
@@ -98,11 +109,17 @@ CREATE TABLE IF NOT EXISTS scanned_dirs (
 Append to `src/dedupcollage/db.py` (module scope; `iso_now` is already imported line 19):
 
 ```python
+# ---------- scan-discovery helpers ----------
+
 def mark_dir_scanned(
     conn: sqlite3.Connection, *, drive_id: int, relpath: str,
     file_count: int, media_count: int,
 ) -> None:
-    """Record a directory subtree as fully scanned (idempotent upsert)."""
+    """Record a directory subtree as fully scanned (idempotent upsert).
+
+    Follows db.py's explicit-transaction model: no internal commit; the
+    caller wraps this in ``transaction()`` (or relies on autocommit).
+    """
     conn.execute(
         "INSERT INTO scanned_dirs (drive_id, relpath, file_count, media_count, completed_at) "
         "VALUES (?, ?, ?, ?, ?) "
@@ -111,10 +128,10 @@ def mark_dir_scanned(
         "completed_at=excluded.completed_at",
         (drive_id, relpath, file_count, media_count, iso_now()),
     )
-    conn.commit()
 
 
 def is_dir_scanned(conn: sqlite3.Connection, *, drive_id: int, relpath: str) -> bool:
+    """True iff a completed scanned_dirs row exists for this (drive, relpath)."""
     row = conn.execute(
         "SELECT 1 FROM scanned_dirs WHERE drive_id = ? AND relpath = ?",
         (drive_id, relpath),
@@ -123,6 +140,7 @@ def is_dir_scanned(conn: sqlite3.Connection, *, drive_id: int, relpath: str) -> 
 
 
 def scanned_relpaths(conn: sqlite3.Connection, *, drive_id: int) -> set[str]:
+    """Relpaths of subtrees already marked complete for this drive."""
     return {
         r[0] for r in conn.execute(
             "SELECT relpath FROM scanned_dirs WHERE drive_id = ?", (drive_id,)
@@ -666,15 +684,16 @@ def index(
     # Post-order completion: a dir is complete only once all its
     # descendants were walked. Mark deepest-first; every walked dir's
     # subtree is fully covered because os.walk visited it all.
-    for rel in sorted(walked, key=lambda r: r.count("/"), reverse=True):
-        sub_t = sum(t for r, (t, _m) in tally.items() if r == rel or r.startswith(rel + "/")) \
-            if rel else sum(t for _r, (t, _m) in tally.items())
-        sub_m = sum(m for r, (_t, m) in tally.items() if r == rel or r.startswith(rel + "/")) \
-            if rel else sum(m for _r, (_t, m) in tally.items())
-        mark_dir_scanned(
-            conn, drive_id=drive_id, relpath=rel,
-            file_count=sub_t, media_count=sub_m,
-        )
+    with transaction(conn):
+        for rel in sorted(walked, key=lambda r: r.count("/"), reverse=True):
+            sub_t = sum(t for r, (t, _m) in tally.items() if r == rel or r.startswith(rel + "/")) \
+                if rel else sum(t for _r, (t, _m) in tally.items())
+            sub_m = sum(m for r, (_t, m) in tally.items() if r == rel or r.startswith(rel + "/")) \
+                if rel else sum(m for _r, (_t, m) in tally.items())
+            mark_dir_scanned(
+                conn, drive_id=drive_id, relpath=rel,
+                file_count=sub_t, media_count=sub_m,
+            )
 
     log.info("scan: seen=%d inserted=%d inaccessible=%d",
              seen, inserted, counts["inaccessible"])
