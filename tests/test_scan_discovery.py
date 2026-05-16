@@ -11,6 +11,7 @@ from dedupcollage import scan as scan_mod
 from dedupcollage.cli import cli
 from dedupcollage.db import connect
 from dedupcollage.discovery import build_tree
+from dedupcollage.gui.selection import default_checked, make_include
 
 
 def test_scanned_dirs_helpers(tmp_db: Path) -> None:
@@ -202,3 +203,19 @@ def test_cli_scan_list_only(tmp_db: Path, tmp_path: Path, image_factory) -> None
     assert "photos" in r.output
     # --list-only must not write ANY file rows (drive-agnostic check).
     assert connect(tmp_db).execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
+
+
+def test_default_checked_unchecks_flagged() -> None:
+    root = build_tree([("", 0, 0), ("photos", 50, 50), ("junk", 30, 0)])
+    checked = default_checked(root, skip_noise=True)
+    assert "photos" in checked and "" in checked
+    assert "junk" not in checked            # flagged -> unchecked
+    all_checked = default_checked(root, skip_noise=False)
+    assert "junk" in all_checked            # skip_noise off -> everything
+
+
+def test_make_include_predicate() -> None:
+    inc = make_include({"", "photos"})
+    assert inc("photos") is True
+    assert inc("photos/2024") is True       # descendant of checked
+    assert inc("junk") is False
