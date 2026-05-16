@@ -7,6 +7,7 @@ import pytest
 
 from dedupcollage import db as dbmod
 from dedupcollage.db import connect
+from dedupcollage.discovery import build_tree
 
 
 def test_scanned_dirs_helpers(tmp_db: Path) -> None:
@@ -43,3 +44,35 @@ def test_indexed_relpaths(tmp_db: Path) -> None:
             "size": 1, "mtime": 1.0, "kind": "image",
         }])
     assert dbmod.indexed_relpaths(conn, drive_id=drive_id) == {"p1.jpg"}
+
+
+def test_build_tree_rolls_up_and_flags() -> None:
+    # (relpath, own_total_files, own_media_files) — own = files directly in dir.
+    rows = [
+        ("", 0, 0),
+        ("photos", 50, 50),
+        ("node_modules", 0, 0),
+        ("node_modules/pkg", 800, 1),
+    ]
+    root = build_tree(rows)
+    assert root.total_files == 850
+    assert root.media_files == 51
+    photos = root.child("photos")
+    assert photos.total_files == 50 and photos.media_files == 50
+    assert photos.flagged is False
+    nm = root.child("node_modules")
+    assert nm.total_files == 800 and nm.media_files == 1
+    assert nm.flagged is True  # 800>=20 and 1/800 < 0.01
+    # Root is not flagged: 51/850 ~ 6% media.
+    assert root.flagged is False
+
+
+def test_flag_thresholds_are_exact() -> None:
+    # 19 files -> below MIN_FILES, never flagged even with 0 media.
+    assert build_tree([("d", 19, 0)]).child("d").flagged is False
+    # 20 files, 0 media -> flagged.
+    assert build_tree([("d", 20, 0)]).child("d").flagged is True
+    # 100 files, exactly 1 media -> ratio 0.01, NOT < 0.01 -> not flagged.
+    assert build_tree([("d", 100, 1)]).child("d").flagged is False
+    # 100 files, 0 media -> flagged.
+    assert build_tree([("d", 100, 0)]).child("d").flagged is True
