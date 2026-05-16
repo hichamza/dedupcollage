@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time  # noqa: F401  # used by heartbeat logic in later scan tasks
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -24,6 +25,46 @@ from dedupcollage.utils import DEFAULT_EXTENSIONS, classify_kind
 log = logging.getLogger(__name__)
 
 _BATCH_SIZE = 1000
+
+# Directory names shown as a muted hint label in the GUI tree. NOT used
+# to skip or flag — selection is evidence-based (see discovery.py).
+NAME_HINTS = {
+    "node_modules": "cache", ".bun": "cache", ".git": "cache",
+    ".cache": "cache", "__pycache__": "cache", ".venv": "cache",
+    "venv": "cache", "appdata": "system",
+    "system volume information": "system",
+}
+_HEARTBEAT_SECS = 0.5
+_HEARTBEAT_EVERY = 2000
+
+
+def name_hint(dirname: str) -> str | None:
+    return NAME_HINTS.get(dirname.lower())
+
+
+def _walk(root: Path, *, prune=None):
+    """Yield (dirpath, filenames) per directory under ``root``.
+
+    ``prune(dirpath, dirname) -> bool`` returns True to skip descending
+    into a subdirectory. Inaccessible dirs are logged and counted; the
+    returned counter dict has key ``inaccessible``.
+    """
+    counts = {"inaccessible": 0}
+
+    def _onerr(e: OSError) -> None:
+        counts["inaccessible"] += 1
+        log.warning("walk: %s", e)
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_onerr):
+        kept = []
+        for d in dirnames:
+            if d.startswith(("$", "_replaced")):
+                continue
+            if prune is not None and prune(dirpath, d):
+                continue
+            kept.append(d)
+        dirnames[:] = kept
+        yield dirpath, filenames, counts
 
 
 def get_volume_serial(path: Path) -> str:
@@ -94,15 +135,9 @@ def get_volume_label(path: Path) -> str | None:
 def iter_candidate_files(
     root: Path, extensions: tuple[str, ...] = DEFAULT_EXTENSIONS
 ) -> Iterator[Path]:
-    """Yield files under ``root`` whose suffix is in ``extensions`` (case-insensitive).
-
-    Errors on individual entries (permission denied, broken junctions) are
-    logged and skipped; the walk continues.
-    """
+    """Yield media files under ``root`` (suffix in ``extensions``)."""
     ext_lower = tuple(e.lower() for e in extensions)
-    for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: log.warning("walk: %s", e)):
-        # Skip a few well-known noise directories.
-        dirnames[:] = [d for d in dirnames if not d.startswith(("$", "_replaced"))]
+    for dirpath, filenames, _counts in _walk(root):
         for name in filenames:
             if name.lower().endswith(ext_lower):
                 yield Path(dirpath) / name
