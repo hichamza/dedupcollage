@@ -84,6 +84,17 @@ CREATE INDEX IF NOT EXISTS idx_capture     ON files(effective_date);
 CREATE INDEX IF NOT EXISTS idx_stage       ON files(last_stage_done);
 CREATE INDEX IF NOT EXISTS idx_drive       ON files(drive_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_drive_relpath ON files(drive_id, relpath);
+
+CREATE TABLE IF NOT EXISTS scanned_dirs (
+    drive_id     INTEGER NOT NULL REFERENCES drives(id),
+    relpath      TEXT    NOT NULL,
+    file_count   INTEGER NOT NULL,
+    media_count  INTEGER NOT NULL,
+    completed_at TEXT    NOT NULL,
+    PRIMARY KEY (drive_id, relpath)
+);
+
 CREATE TABLE IF NOT EXISTS clusters (
     id                    INTEGER PRIMARY KEY,
     winner_id             INTEGER REFERENCES files(id),
@@ -183,6 +194,48 @@ def upsert_drive(
         (label, source_root, now, drive_id),
     )
     return drive_id
+
+
+def mark_dir_scanned(
+    conn: sqlite3.Connection, *, drive_id: int, relpath: str,
+    file_count: int, media_count: int,
+) -> None:
+    """Record a directory subtree as fully scanned (idempotent upsert)."""
+    conn.execute(
+        "INSERT INTO scanned_dirs (drive_id, relpath, file_count, media_count, completed_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(drive_id, relpath) DO UPDATE SET "
+        "file_count=excluded.file_count, media_count=excluded.media_count, "
+        "completed_at=excluded.completed_at",
+        (drive_id, relpath, file_count, media_count, iso_now()),
+    )
+    conn.commit()
+
+
+def is_dir_scanned(conn: sqlite3.Connection, *, drive_id: int, relpath: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM scanned_dirs WHERE drive_id = ? AND relpath = ?",
+        (drive_id, relpath),
+    ).fetchone()
+    return row is not None
+
+
+def scanned_relpaths(conn: sqlite3.Connection, *, drive_id: int) -> set[str]:
+    return {
+        r[0] for r in conn.execute(
+            "SELECT relpath FROM scanned_dirs WHERE drive_id = ?", (drive_id,)
+        )
+    }
+
+
+def indexed_relpaths(conn: sqlite3.Connection, *, drive_id: int) -> set[str]:
+    """relpaths of files already in the index for this drive."""
+    return {
+        r[0] for r in conn.execute(
+            "SELECT relpath FROM files WHERE drive_id = ? AND relpath IS NOT NULL",
+            (drive_id,),
+        )
+    }
 
 
 def mark_all_drives_offline(conn: sqlite3.Connection) -> None:
