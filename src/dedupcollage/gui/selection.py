@@ -23,13 +23,18 @@ def default_checked(root: DirNode, *, skip_noise: bool) -> set[str]:
 
 
 def make_include(checked: set[str]):
-    """include(relpath) -> True if relpath is checked or under a checked dir."""
+    """Build the scan ``include(relpath)`` predicate from a checked set.
+
+    ``checked`` is the full set of selected directory relpaths. The
+    discovery tree enumerates every directory and ``default_checked`` /
+    the GUI list each one individually, so membership is **exact**: a
+    directory is walked iff its own relpath is in the set. This means
+    unchecking a child excludes it even when its parent stays checked
+    (no subtree-prefix expansion, so no accidental re-inclusion).
+    """
     norm = {c.strip("/") for c in checked}
 
     def include(relpath: str) -> bool:
-        r = relpath.strip("/")
-        if r in norm or "" in norm and r == "":
-            return True
-        return any(r == c or r.startswith(c + "/") for c in norm if c != "")
+        return relpath.strip("/") in norm
 
     return include

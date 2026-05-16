@@ -215,7 +215,26 @@ def test_default_checked_unchecks_flagged() -> None:
 
 
 def test_make_include_predicate() -> None:
-    inc = make_include({"", "photos"})
+    inc = make_include({"", "photos", "photos/2024"})
     assert inc("photos") is True
-    assert inc("photos/2024") is True       # descendant of checked
+    assert inc("photos/2024") is True       # individually selected
     assert inc("junk") is False
+    # Unchecked child excluded even though its parent 'photos' is checked.
+    assert inc("photos/raw") is False
+
+
+def test_make_include_membership_is_exact() -> None:
+    inc = make_include({"", "a", "a/keepme"})
+    assert inc("") is True
+    assert inc("a") is True
+    assert inc("a/keepme") is True
+    assert inc("a/raw") is False            # not selected -> excluded
+    assert inc("b") is False
+
+
+def test_default_checked_nested_recursion() -> None:
+    root = build_tree([("", 0, 0), ("a", 0, 0), ("a/b", 30, 0), ("a/keepme", 5, 5)])
+    checked = default_checked(root, skip_noise=True)
+    assert "" in checked and "a" in checked
+    assert "a/keepme" in checked            # unflagged child kept
+    assert "a/b" not in checked             # flagged (30 files, 0 media)
